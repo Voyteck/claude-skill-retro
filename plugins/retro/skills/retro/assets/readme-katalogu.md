@@ -1,7 +1,8 @@
 # Retro: katalog roboczy
 
 Stan retrospektyw sposobu pracy z Claude Code. Mechanizm (procedura, skrypty, szablony) to plugin `retro`;
-tutaj są tylko wyniki i stan między retro. Retro uruchamia `/retro:retro` albo prośba „zróbmy retro”.
+tutaj są tylko wyniki i stan między retro. Retro uruchamia `/retro` (pełna nazwa `/retro:retro`) albo prośba
+„zróbmy retro”.
 
 | plik | rola |
 |---|---|

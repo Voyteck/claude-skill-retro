@@ -19,7 +19,7 @@ import subprocess
 PLIK_KONFIGURACJI = "konfiguracja.json"
 KATALOG_PROJEKTU = ".retro"
 WSKAZNIK_KONTA = "retro.json"
-POLECENIE = "/retro:retro"
+POLECENIE = "/retro"
 
 DOMYSLNA_KONFIGURACJA = {
     "wersja": 1,

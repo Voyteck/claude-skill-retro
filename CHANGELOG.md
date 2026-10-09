@@ -1,5 +1,11 @@
 # Zmiany
 
+## 0.1.1 · 2026-10-09
+
+- Przypomnienie i README katalogu roboczego podają krótkie polecenie `/retro`. Sprawdzone w Claude Code
+  2.1.293 (Windows): skill pluginu odpowiada na samą nazwę, gdy żadne inne polecenie jej nie zajmuje; pełna
+  nazwa `/retro:retro` działa zawsze.
+
 ## 0.1.0 · 2026-10-09
 
 Pierwsza wersja uniwersalna, wydzielona z prywatnego skillu retro po retro zero (R00).
