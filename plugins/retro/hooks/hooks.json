@@ -1,0 +1,18 @@
+{
+  "description": "Przypomnienie o zaległym retro przy starcie nowej sesji (milczy, gdy retro nie jest założone).",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "for p in python3 python py; do \"$p\" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1 && exec \"$p\" \"${CLAUDE_PLUGIN_ROOT}/skills/retro/scripts/przypomnienie.py\"; done; exit 0",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

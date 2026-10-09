@@ -1,0 +1,164 @@
+---
+name: retro
+description: Retrospektywa sposobu pracy z Claude Code w stylu Agile (użytkownik + Claude + podagenci), zwykle co 2 dni robocze. Rozlicza zobowiązania z poprzednich retro (czy były przestrzegane i czy miały sens), zbiera dowody z transkrypcji Claude Code, gita i GitHuba, ocenia co działało i co nie (także po stronie użytkownika), proponuje najwyżej 5 zmian do jego decyzji i wdraża przyjęte. Przy pierwszym użyciu zakłada katalog roboczy (całe konto albo jeden projekt). Użyj, gdy użytkownik prosi o retro, retrospektywę, lessons learned, przegląd nauk, „co robimy dobrze, a co źle”, „czy trzymamy się ustaleń”, continuous improvement, albo gdy przypomnienie o zaległym retro dostało jego zgodę.
+---
+
+# Retro
+
+Cel: domknięta pętla **zobowiązanie → przestrzeganie → efekt → decyzja**, a nie lista spostrzeżeń. Każde retro
+zaczyna się od rozliczenia tego, co ustalono wcześniej.
+
+## Miejsca
+
+- **Skill:** `${CLAUDE_SKILL_DIR}` (`scripts/`, `assets/`, `references/`). Skrypty uruchamiasz
+  `python "${CLAUDE_SKILL_DIR}/scripts/<skrypt>.py"` (albo `python3`; Python ≥ 3.8, tylko biblioteka standardowa).
+- **Katalog roboczy** (stan między retro, zawsze poza skillem):
+  - tryb **konta**: wszystkie projekty z transkrypcji na tym koncie; katalog wskazuje `~/.claude/retro.json`;
+  - tryb **projektu**: jedno repo; katalog `<repo>/.retro/`, commitowany z projektem, wspólny dla zespołu.
+
+  Zawartość: `konfiguracja.json`, `retro/RNN-RRRR-MM-DD.md`, `zobowiazania.md` (rejestr), `metryki.csv`,
+  `nauki.md` (tryb konta), `dane/` (wyciągi z transkrypcji, poza gitem).
+- Skrypty: `wspolne.py` (rozpoznanie stanu), `zaloz.py` (zakładanie katalogu), `sygnaly.py` (dowody z okna),
+  `przypomnienie.py` (hook przypomnienia). Pola konfiguracji: `references/konfiguracja.md`. Znaczenie metryk
+  i ich ograniczenia: `references/sygnaly.md`.
+
+## Zasady stałe
+
+1. **Dowód albo nic.** Każde „dobrze”, „źle” i ocena przestrzegania wskazuje dowód: `MM-DD HH:MM` + 8 znaków id
+   sesji (z osi czasu w `dane/sygnaly-*/<projekt>.md`), numer PR, hash commitu albo plik.
+2. **Oceniasz też siebie, więc bez laurki.** Najpierw szukaj złamań zobowiązań, potem potwierdzeń. Przy
+   „przestrzegane” podaj liczbę okazji i złamań, nie przymiotnik.
+3. **Strona użytkownika szczerze**, gdy `ocena_wlasciciela` w konfiguracji jest włączona: jego decyzje i nawyki
+   oceniasz jak pracę Claude'a, w kategoriach kosztu i efektu (czas, przerwane prace, rundy poprawek), nie osoby.
+4. **Mniej reguł, nie więcej.** Najwyżej 5 nowych zobowiązań na retro. Przy ponad 10 aktywnych retro musi
+   zaproponować co najmniej jedno utrwalenie albo porzucenie. Każda rekomendacja mówi, co zastępuje lub skraca.
+5. **Mechanizm zamiast tekstu.** Reguły z mechanizmem (test, hook, ochrona gałęzi, szablon, przypięty model
+   agenta) są przestrzegane; reguły tylko w tekście, wymagające nawyku, zwykle umierają. Proponując zmianę,
+   najpierw szukaj mechanizmu; samą regułę w tekście proponuj, gdy mechanizmu nie ma.
+6. **Decyduje użytkownik.** Propozycje stają się zobowiązaniami dopiero po jego akceptacji. Pytaj narzędziem
+   AskUserQuestion (jeśli jest dostępne; inaczej numerowaną listą w wiadomości), rekomendowana opcja pierwsza
+   z dopiskiem „(rekomendowane)”. **Jedno pytanie = jedna niezależna decyzja.** Treść propozycji i ewentualny
+   krok do wykonania wpisz w samo pytanie, bo tekst nad widżetem bywa niewidoczny.
+7. **Retro nie zmienia kodu produktów** i nie uruchamia ciężkich testów. Zmienia reguły (CLAUDE.md, pamięć,
+   rejestr, `nauki.md`) i tylko po decyzji użytkownika.
+8. Po polsku, bez żargonu tam, gdzie jest polskie słowo.
+
+## Krok 0. Rozpoznanie i pierwsze uruchomienie
+
+1. `python "${CLAUDE_SKILL_DIR}/scripts/wspolne.py"` wypisuje JSON: katalog roboczy, tryb, konfigurację,
+   ostatnie zakończone retro, następny numer.
+2. **Brak katalogu** (`katalog_roboczy: null`) = pierwsze uruchomienie. Zadaj osobne pytania:
+   - tryb: „Całe konto (rekomendowane, gdy jedna osoba pracuje w wielu projektach)” / „Ten projekt (retro
+     w repo, wspólne dla zespołu)”;
+   - w trybie konta katalog: `~/retro` (rekomendowane) / inny;
+   - ocena strony użytkownika: „Tak, szczerze (rekomendowane)” / „Tylko praca Claude'a i agentów”;
+   - kalendarz dni roboczych: „Polski (rekomendowane)” / „Sam weekend”.
+
+   Potem `python "${CLAUDE_SKILL_DIR}/scripts/zaloz.py" --tryb konto --katalog <katalog> [--kalendarz brak]
+   [--bez-oceny-wlasciciela]` albo `--tryb projekt --repo <repo>`. Pokaż, co powstało. Jeśli skill nie jest
+   zainstalowany jako plugin, przypomnienie nie działa samo: zaproponuj hook według `references/konfiguracja.md`,
+   sekcja „Przypomnienie bez pluginu”.
+3. Tryb konta: sesja powinna pracować w katalogu roboczym (przenieś ją narzędziem zmiany katalogu, jeśli jest;
+   inaczej używaj ścieżek bezwzględnych). Tryb projektu: sesja w repo projektu.
+4. Numer `N` = `nastepny_numer`. Plik `retro/RNN-RRRR-MM-DD.md` z `assets/szablon-retro.md`,
+   `**Status:** szkic`. Jeśli istnieje niezakończony szkic, zapytaj: dokończyć go czy zastąpić.
+5. Okno: od dnia ostatniego **zakończonego** retro (włącznie) do dziś. Zdarzenia sprzed commita tamtego retro
+   z tego samego dnia nie liczą się do rozliczenia. Argumenty skillu („tylko projekt X”, „od 2026-10-06”)
+   zawężają okno lub zakres.
+
+**Retro zero** (brak zakończonych retro, pusty rejestr): okno od najstarszej transkrypcji. Zamiast rozliczenia
+rejestru zrób bilans dotychczasowych nauk: wpisy `feedback` w pamięci projektów
+(`~/.claude/projects/*/memory/`), globalny `~/.claude/CLAUDE.md` i sekcje o pracy z Claude'em w CLAUDE.md
+repozytoriów. Traktuj je jak niejawne zobowiązania: przestrzegane? z efektem? duplikaty między projektami?
+sprzeczne? martwe? Wynik to pierwszy rejestr (najwyżej 10 aktywnych) do akceptacji użytkownika.
+
+## Krok 1. Dane
+
+```
+python "${CLAUDE_SKILL_DIR}/scripts/sygnaly.py" --od RRRR-MM-DD
+```
+
+Wynik w `<katalog roboczy>/dane/sygnaly-<od>_<do>/`: `podsumowanie.md`, `metryki.json`, `<projekt>.md` (oś
+czasu). Przeczytaj podsumowanie i metryki, porównaj z `metryki.csv`. Klasy odpowiedzi na pytania i ograniczenia
+liczb: `references/sygnaly.md`. „[K?]” to heurystyka, nie dowód. Gdy w repo są rekordy zużycia tokenów
+(np. ze skillu `claude-usage-report`), weź z nich koszt na scalony PR; samego pomiaru w ramach retro nie rób.
+
+## Krok 2. Analiza
+
+- **Małe okno** (do ~40 wiadomości użytkownika łącznie): analizuj sam.
+- **Większe:** podagenci `general-purpose` z jawnym modelem `model_podagentow` z konfiguracji, równolegle,
+  jeden na projekt z ruchem plus jeden przekrojowy (współpraca, strona użytkownika, sprzeczności między
+  projektami). Każdy dostaje ścieżkę osi czasu projektu, `zobowiazania.md`, pliki reguł projektu, sekcję
+  „Zasady stałe” i zadanie:
+  1. dla każdego aktywnego zobowiązania: okazje, złamania, dowody, czy dało efekt;
+  2. co działało / co nie działało, z dowodami i przyczyną;
+  3. obserwacje strony użytkownika (jeśli ocena włączona);
+  4. sprzeczne i martwe reguły;
+  5. najwyżej 3 kandydatów na rekomendacje, każdy z sygnałem przestrzegania i mechanizmem, jeśli jest.
+
+  Podagent zapisuje analizę do `dane/sygnaly-…/analiza-<zakres>.md` i zwraca ≤300 słów. Pełną transkrypcję
+  (`~/.claude/projects/*/<sesja>.jsonl`) może przeszukiwać `grep` po id sesji i czasie, nie wczytuje jej całej.
+  Pytania podagentów wracają w raporcie; zadajesz je użytkownikowi.
+
+## Krok 3. Synteza
+
+Wypełnij plik retro wg szablonu. Rozliczenie zobowiązań:
+
+| pole | wartości |
+|---|---|
+| przestrzegane | tak / częściowo (x z y okazji) / nie / brak okazji |
+| sens | tak / nie / za wcześnie (za mało okazji) |
+| werdykt | utrzymać / zmienić / utrwalić / porzucić |
+
+- **utrwalić** = przestrzegane bez złamań w 3 kolejnych retro → zostaje w pliku reguł, rejestr przestaje je
+  śledzić (sprawdzenie wyrywkowe raz na 5 retro);
+- **porzucić** = brak efektu albo koszt większy niż zysk → usuń też z plików reguł;
+- **zmienić** = idea dobra, forma nie działa → nowe zobowiązanie zastępuje stare.
+
+**Czeka na użytkownika** (sekcja 8a szablonu). Zbierz z dowodem i datą „od”:
+- pytania odłożone w oknie (klasa „odłożone” w osiach czasu), które nie wróciły;
+- PR-y otwarte dłużej niż 2 dni robocze (`gh pr list` w repozytoriach z podsumowania) i gałęzie niewypchnięte
+  (`git log --branches --not --remotes`);
+- notatki przekazania (`HANDOFF*`, wpisy pamięci „do zrobienia”) bez sesji w projekcie od ponad 10 dni roboczych;
+- otwarte pytania z plików `rejestry_pytan` z konfiguracji, starsze niż 30 dni;
+- pozycje z sekcji 8a poprzedniego retro, których nie zamknięto.
+
+Retro samo tych spraw nie wykonuje; o każdą pozycję pytasz w kroku 4.
+
+## Krok 4. Decyzje użytkownika
+
+Do 4 pytań na wywołanie, jedno pytanie = jedna niezależna decyzja (łącz tylko pomysły od siebie zależne).
+Kolejność: rekomendacje i zmiany statusu, potem sprzątanie reguł, na końcu „czeka na użytkownika”.
+- utrzymanie zobowiązania bez zmiany statusu: `Utrzymaj (rekomendowane)` / `Zmień: …` / `Porzuć`;
+- werdykt zmieniający status, nowa rekomendacja, usunięcie z reguł: `Przyjmij (rekomendowane)` / `Zmień: …` / `Odrzuć`;
+- pozycja „czeka na użytkownika”: `Zrobić teraz (w sesji projektu)` / `Zamknąć` / `Odłożyć do <data>`.
+  „Zrobić teraz” = zadanie dla sesji projektu z pełnym kontekstem (np. `spawn_task`, jeśli dostępne), nie praca retro.
+
+Zapisz odpowiedzi w sekcji 9 retro, własne odpowiedzi użytkownika dosłownie.
+
+## Krok 5. Wdrożenie
+
+1. `zobowiazania.md`: nowe wpisy `Z-NNN` (format w nagłówku pliku), wiersz oceny w tabeli każdego rozliczonego,
+   zmiany statusu.
+2. Reguły:
+   - **tryb konta:** ogólne (wszystkie projekty) → `~/.claude/CLAUDE.md`, krótko, z numerem `Z-NNN`; wiedza
+     przekrojowa (pułapki komputera i narzędzi) → `nauki.md`; przy pierwszym wpisie zaproponuj jedną linię
+     w `~/.claude/CLAUDE.md` odsyłającą do `nauki.md`, bo pamięć projektu ładuje się tylko w jego folderze;
+   - **projektowe:** CLAUDE.md repo zgodnie z jego zasadami (jeśli zmiany idą przez PR: gałąź
+     `retro/rNN-<temat>` w osobnym worktree i PR);
+   - pamięć projektu (`~/.claude/projects/*/memory/`) → wpis `feedback` z odnośnikiem `Z-NNN`, bez powielania
+     treści z `nauki.md`.
+3. `metryki.csv`: wiersz z `metryki.json` (kolumny jak w nagłówku) plus liczba aktywnych zobowiązań.
+4. W retro: sekcja 10 (co, gdzie, commit lub PR), `**Status:** zakończone` (to resetuje licznik przypomnienia).
+5. Commit: tryb konta w katalogu roboczym; tryb projektu w repo (wg jego zasad), `retro(RNN): <najważniejsza zmiana>`.
+
+## Krok 6. Zamknięcie
+
+W czacie 5–8 zdań: najważniejszy wniosek, co przyjęto, co się zmienia od jutra, odnośnik do pliku retro.
+
+## Utrzymanie
+
+Zainstalowana kopia pluginu jest nadpisywana przy aktualizacji: zmian skillu nie rób w niej, tylko w repo pluginu
+(test: `python -m unittest discover -s testy` w repo). Zmianę, którą retro uzna za potrzebną, zapisz w sekcji 10
+retro jako propozycję dla repo pluginu. Skrypty i treść z ukośnikami odwrotnymi pisz narzędziem Write, nie przez
+heredoc basha.
