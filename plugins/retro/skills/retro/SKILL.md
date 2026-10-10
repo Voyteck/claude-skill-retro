@@ -12,6 +12,7 @@ zaczyna się od rozliczenia tego, co ustalono wcześniej.
 
 - **Skill:** `${CLAUDE_SKILL_DIR}` (`scripts/`, `assets/`, `references/`). Skrypty uruchamiasz
   `python "${CLAUDE_SKILL_DIR}/scripts/<skrypt>.py"` (albo `python3`; Python ≥ 3.8, tylko biblioteka standardowa).
+  Na Windows `python` i `python3` bywają atrapami ze Sklepu Microsoft („nie znaleziono Python”): użyj wtedy `py`.
 - **Katalog roboczy** (stan między retro, zawsze poza skillem):
   - tryb **konta**: wszystkie projekty z transkrypcji na tym koncie; katalog wskazuje `~/.claude/retro.json`;
   - tryb **projektu**: jedno repo; katalog `<repo>/.retro/`, commitowany z projektem, wspólny dla zespołu.
@@ -83,6 +84,11 @@ czasu). Przeczytaj podsumowanie i metryki, porównaj z `metryki.csv`. Klasy odpo
 liczb: `references/sygnaly.md`. „[K?]” to heurystyka, nie dowód. Gdy w repo są rekordy zużycia tokenów
 (np. ze skillu `claude-usage-report`), weź z nich koszt na scalony PR; samego pomiaru w ramach retro nie rób.
 
+Podsumowanie zawiera uwagi o danych; uwzględnij je, zanim zacytujesz liczby: okno dłuższe niż retencja
+transkrypcji, checkout repo w tyle za zdalną gałęzią (reguły na dysku nieaktualne), projekty z pamięcią bez sesji
+w oknie. Sekrety w osiach czasu są zamazywane (`[zamazane]`), ale to heurystyka: gdy mimo to zobaczysz klucz albo
+hasło, nie przepisuj go do pliku retro ani do zadań dla podagentów, tylko zgłoś w sekcji 8a jako sprawę do rotacji.
+
 ## Krok 2. Analiza
 
 - **Małe okno** (do ~40 wiadomości użytkownika łącznie): analizuj sam.
@@ -133,6 +139,8 @@ Kolejność: rekomendacje i zmiany statusu, potem sprzątanie reguł, na końcu 
 - werdykt zmieniający status, nowa rekomendacja, usunięcie z reguł: `Przyjmij (rekomendowane)` / `Zmień: …` / `Odrzuć`;
 - pozycja „czeka na użytkownika”: `Zrobić teraz (w sesji projektu)` / `Zamknąć` / `Odłożyć do <data>`.
   „Zrobić teraz” = zadanie dla sesji projektu z pełnym kontekstem (np. `spawn_task`, jeśli dostępne), nie praca retro.
+  Gdy pozycji jest więcej niż 8 (zwykle retro zero), łącz w jedno pytanie pozycje tego samego projektu, które
+  trafiłyby do jednego zadania; sprawy bezpieczeństwa (rotacje, klucze, hasła) zawsze pytaj osobno.
 
 Zapisz odpowiedzi w sekcji 9 retro, własne odpowiedzi użytkownika dosłownie.
 

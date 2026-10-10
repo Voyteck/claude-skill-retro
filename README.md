@@ -93,6 +93,10 @@ claude plugin validate plugins/retro --strict
 ## Ograniczenia
 
 - Widzi tylko sesje lokalne; sesje w chmurze (claude.ai/code) i na innych komputerach nie trafiają do retro.
+- Claude Code usuwa transkrypcje z terminala i VS Code po `cleanupPeriodDays` (domyślnie 30 dni). Wyciągi
+  w `dane/` zostają; kto chce dłuższej historii, podnosi tę wartość w `~/.claude/settings.json`.
+- Wyciągi z transkrypcji (`dane/`) są poza gitem, a ciągi wyglądające na sekrety są w nich zamazywane. To
+  heurystyka, nie gwarancja: klucz wklejony do rozmowy trzeba i tak zrotować.
 - Format transkrypcji nie jest publicznym API Claude Code; gdy liczby nagle spadną do zera, sprawdź skrypt na
   świeżej transkrypcji.
 - Polecenie to `/retro`, pełna nazwa `/retro:retro` (nazwa pluginu i skilla). Samo `/retro` działa tylko wtedy,

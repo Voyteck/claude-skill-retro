@@ -33,9 +33,62 @@ WZOR_KOREKTY = re.compile(
 # Rekomendacja bywa opisana różnie: „(rekomendowane)”, „(Rekomendacja)”, „— zalecam”, „(zalecane)”, „(Recommended)”.
 WZOR_REKOMENDACJI = re.compile(r"(?<!nie )\b(rekomend\w*|recommended|zalec\w*)", re.IGNORECASE)
 WZOR_PR = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+")
+# Sesje uruchomione w scratchpadzie Claude Code (np. `claude -p` z testów) to nie praca właściciela.
+WZOR_SCRATCHPAD = re.compile(r"[\\/]claude(-\d+)?[\\/].+[\\/]scratchpad([\\/]|$)", re.IGNORECASE)
+
+# Sekrety w raportach. Raporty trafiają do `dane/` i do kontekstu podagentów, więc ciągi wyglądające na sekret
+# są zamazywane przed zapisem. Heurystyka: wzór (zachowany przedrostek, sekret) albo cały dopasowany ciąg.
+ZAMAZANE = "[zamazane]"
+_WARTOSC = r"(\\\"[^\"]*?\\\"|\"[^\"]*\"|'[^']*'|[^\s\"'`,;|)]+)"
+WZORY_SEKRETOW = [
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.S), False),
+    (re.compile(r"(gh\s+(?:secret|variable)\s+set\b[^\n|;&]*?(?:--body(?:=|\s+)|\s-b\s+))" + _WARTOSC), True),
+    (re.compile(r"(?i)\b([\w.-]*(?:key|token|secret|pass|pwd|has[lł]o|klucz)[\w.-]*\s*[=:]\s*)"
+                r"(?=[\\\"']*[^\s\"'`,;|)]*\d)(?=[\\\"']*[^\s\"'`,;|)]*[A-Za-z])"
+                r"(\\\"[^\"]{8,}?\\\"|\"[^\"]{8,}\"|'[^']{8,}'|[^\s\"'`,;|)]{8,})"), True),
+    (re.compile(r"(?i)\b(bearer\s+)([A-Za-z0-9._~+/=-]{16,})"), True),
+    (re.compile(r"\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}"
+                r"|AIza[0-9A-Za-z_-]{30,}|xox[abprs]-[A-Za-z0-9-]{10,}|hf_[A-Za-z0-9]{20,}"
+                r"|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})"), False),
+]
+WZOR_DLUGI_CIAG = re.compile(r"(?<![A-Za-z0-9+=])[A-Za-z0-9+=]{32,}(?![A-Za-z0-9+=])")
+WZOR_HEX = re.compile(r"[0-9a-fA-F]+\Z")
 
 
 # ---------------------------------------------------------------- pomocnicze
+
+def zamaz(tekst: str):
+    """Zwraca (tekst z zamazanymi sekretami, liczba zamazań)."""
+    licznik = 0
+
+    def z_przedrostkiem(m):
+        nonlocal licznik
+        licznik += 1
+        return m.group(1) + ZAMAZANE
+
+    def caly(m):
+        nonlocal licznik
+        licznik += 1
+        return ZAMAZANE
+
+    def dlugi(m):
+        nonlocal licznik
+        ciag = m.group(0)
+        if not (re.search(r"\d", ciag) and re.search(r"[A-Za-z]", ciag)):
+            return ciag
+        if WZOR_HEX.match(ciag) and len(ciag) == 40:        # hash commitu to dowód, nie sekret
+            return ciag
+        if m.string[max(0, m.start() - 7):m.start()].lower() == "sha256:":   # digest obrazu
+            return ciag
+        licznik += 1
+        return ZAMAZANE
+
+    for wzor, z_grupa in WZORY_SEKRETOW:
+        tekst = wzor.sub(z_przedrostkiem if z_grupa else caly, tekst)
+    tekst = WZOR_DLUGI_CIAG.sub(dlugi, tekst)
+    return tekst, licznik
+
+
 
 def czas_lokalny(ts: str):
     try:
@@ -181,6 +234,22 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
     s = Sesja(plik)
     narzedzia = {}           # tool_use_id -> (nazwa, input)
     ostatni_tekst_asystenta = ""
+    ostatnie_wlasciciela = {}  # tekst -> (czas, w_trakcie); ta sama wiadomość bywa i w kolejce, i jako zwykła
+
+    def wiadomosc_wlasciciela(tekst, czas, w_trakcie=False):
+        klucz = tekst.strip()
+        poprzednio = ostatnie_wlasciciela.get(klucz)
+        ostatnie_wlasciciela[klucz] = (czas, w_trakcie)
+        if poprzednio and poprzednio[1] != w_trakcie and abs((czas - poprzednio[0]).total_seconds()) < 120:
+            return
+        korekta = bool(WZOR_KOREKTY.search(tekst))
+        s.licz["wiad_wlasciciela"] += 1
+        s.licz["wiad_mozliwa_korekta"] += korekta
+        s.licz["wiad_w_trakcie"] += w_trakcie
+        s.zdarzenia.append((czas, "wlasciciel", {
+            "tekst": skroc(tekst, 1200), "korekta": korekta, "w_trakcie": w_trakcie,
+            "poprzedzone": skroc(ostatni_tekst_asystenta, 250)}))
+
     with plik.open(encoding="utf-8", errors="replace") as f:
         for linia in f:
             try:
@@ -238,6 +307,13 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                         s.licz["workflow"] += 1
                 continue
 
+            if typ == "attachment":
+                # Wiadomość wysłana w trakcie pracy Claude'a: wchłonięta w turę, bez własnego rekordu „user”.
+                zal = d.get("attachment") or {}
+                if (zal.get("type") == "queued_command" and (zal.get("origin") or {}).get("kind") == "human"
+                        and isinstance(zal.get("prompt"), str) and zal["prompt"].strip()):
+                    wiadomosc_wlasciciela(zal["prompt"], czas, w_trakcie=True)
+                continue
             if typ != "user":
                 continue
             pochodzenie = (d.get("origin") or {}).get("kind")
@@ -293,12 +369,7 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
             if tekst.lstrip().startswith(("<local-command", "<task-notification", "[Cross-session")):
                 continue
             if pochodzenie in ("human", None) and tekst.strip():
-                korekta = bool(WZOR_KOREKTY.search(tekst))
-                s.licz["wiad_wlasciciela"] += 1
-                s.licz["wiad_mozliwa_korekta"] += korekta
-                s.zdarzenia.append((czas, "wlasciciel", {
-                    "tekst": skroc(tekst, 1200), "korekta": korekta,
-                    "poprzedzone": skroc(ostatni_tekst_asystenta, 250)}))
+                wiadomosc_wlasciciela(tekst, czas)
 
     # podagenci tej sesji: faktyczny typ i model z ich własnych transkrypcji
     katalog_pod = plik.with_suffix("") / "subagents"
@@ -334,7 +405,8 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
 
 
 def wszystkie_sesje(od, do, projekty: Projekty):
-    sesje = []
+    """Zwraca (sesje w oknie, liczba pominiętych sesji uruchomionych w scratchpadzie)."""
+    sesje, w_scratchpadzie = [], 0
     for plik in sorted((wspolne.katalog_claude() / "projects").glob("*/*.jsonl")):
         try:
             if dt.datetime.fromtimestamp(plik.stat().st_mtime).astimezone() < od:
@@ -342,10 +414,14 @@ def wszystkie_sesje(od, do, projekty: Projekty):
         except OSError:
             continue
         s = czytaj_sesje(plik, od, do)
-        if s.pierwszy:
-            s.przypisz_projekt(projekty)
-            sesje.append(s)
-    return sesje
+        if not s.pierwszy:
+            continue
+        if s.cwd and all(WZOR_SCRATCHPAD.search(c) for c in s.cwd):
+            w_scratchpadzie += 1
+            continue
+        s.przypisz_projekt(projekty)
+        sesje.append(s)
+    return sesje, w_scratchpadzie
 
 
 # ---------------------------------------------------------------- git i GitHub
@@ -364,9 +440,14 @@ def git_i_gh(repozytoria: dict, od_data, do_data, gh):
     for nazwa, sciezka in repozytoria.items():
         if not pathlib.Path(sciezka, ".git").exists():
             continue
-        r = {"commity": 0, "commity_fix": 0, "reverty": 0, "zmiany_regul": 0,
+        r = {"commity": 0, "commity_fix": 0, "reverty": 0, "zmiany_regul": 0, "za_zdalna": None,
              "pr_otwarte": 0, "pr_scalone": 0, "pr_h_do_scalenia": [], "pr_commity": [],
              "ci_wszystkie": 0, "ci_porazki": 0, "gh": "ok" if gh else "pominięty (brak gh albo --bez-gh)"}
+        # Checkout w tyle za zdalną gałęzią (wg ostatniego fetch; skrypt sam nie łączy się z siecią):
+        # pliki reguł czytane z dysku mogą być wtedy nieaktualne.
+        kod, out, _ = uruchom(["git", "rev-list", "--count", "HEAD..@{u}"], sciezka)
+        if kod == 0 and out.strip().isdigit():
+            r["za_zdalna"] = int(out.strip())
         zakres = [f"--since={od_data.isoformat()} 00:00", f"--until={do_data.isoformat()} 23:59:59"]
         kod, out, _ = uruchom(["git", "log", "--all", "--no-merges", "--format=%H%x09%s", *zakres], sciezka)
         if kod == 0:
@@ -423,6 +504,10 @@ def pliki_regul(repozytoria: dict, konf: dict) -> list:
         baza = pathlib.Path(sciezka)
         for wzor in ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", "*/CLAUDE.md"):
             pliki += [(nazwa, p) for p in sorted(baza.glob(wzor))]
+        # Śledzone CLAUDE.md na dowolnej głębokości (np. mitm/db/CLAUDE.md); bez przeszukiwania vendor/ i node_modules/.
+        kod, out, _ = uruchom(["git", "-c", "core.quotepath=off", "ls-files", "--", "CLAUDE.md", "*/CLAUDE.md"], sciezka)
+        if kod == 0:
+            pliki += [(nazwa, baza / wzgledna) for wzgledna in sorted(out.splitlines()) if wzgledna]
     pliki += [("dodatkowe", pathlib.Path(p).expanduser()) for p in konf.get("pliki_regul_dodatkowe") or []]
     wynik, widziane = [], set()
     for nazwa, p in pliki:
@@ -438,17 +523,21 @@ def pliki_regul(repozytoria: dict, konf: dict) -> list:
 
 
 def pamiec(foldery, od, projekty_folderow: dict):
-    """Pliki pamięci w folderach transkrypcji; zmienione w oknie."""
-    liczba, zmiany = 0, []
+    """Pliki pamięci w folderach transkrypcji: liczba, zmienione w oknie, foldery z pamięcią bez sesji w oknie."""
+    liczba, zmiany, bez_sesji = 0, [], []
     for folder in foldery:
+        w_folderze = 0
         for p in (folder / "memory").glob("*.md"):
             if p.name == "MEMORY.md":
                 continue
-            liczba += 1
+            w_folderze += 1
             zm = dt.datetime.fromtimestamp(p.stat().st_mtime).astimezone()
             if zm >= od:
                 zmiany.append((projekty_folderow.get(folder, folder.name[-40:]), p.name, zm))
-    return liczba, sorted(zmiany, key=lambda x: x[2])
+        liczba += w_folderze
+        if w_folderze and folder not in projekty_folderow:
+            bez_sesji.append((folder.name[-40:], w_folderze))
+    return liczba, sorted(zmiany, key=lambda x: x[2]), bez_sesji
 
 
 # ---------------------------------------------------------------- raporty
@@ -483,7 +572,8 @@ def raport_projektu(nazwa, sesje, od_data, do_data) -> str:
     for czas, s, rodzaj, d in zdarzenia:
         znak = f"`{czas:%m-%d %H:%M}` `{s.sid[:8]}`"
         if rodzaj == "wlasciciel":
-            l.append(f"- {znak} **Właściciel{' [K?]' if d['korekta'] else ''}:** {d['tekst']}")
+            w_trakcie = " (w trakcie pracy Claude'a)" if d.get("w_trakcie") else ""
+            l.append(f"- {znak} **Właściciel{w_trakcie}{' [K?]' if d['korekta'] else ''}:** {d['tekst']}")
             if d["poprzedzone"]:
                 l.append(f"  - ↳ wcześniej Claude: _{d['poprzedzone']}_")
         elif rodzaj == "pytanie":
@@ -522,6 +612,15 @@ def raport_projektu(nazwa, sesje, od_data, do_data) -> str:
     return "\n".join(l) + "\n"
 
 
+def retencja_dni() -> int:
+    """Po ilu dniach Claude Code usuwa transkrypcje (`cleanupPeriodDays` w ustawieniach użytkownika, domyślnie 30)."""
+    try:
+        ustawienia = json.loads((wspolne.katalog_claude() / "settings.json").read_text(encoding="utf-8"))
+        return int(ustawienia.get("cleanupPeriodDays", 30))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 30
+
+
 def nazwa_pliku(nazwa: str) -> str:
     return re.sub(r"[^\w.-]+", "-", nazwa).strip("-") or "projekt"
 
@@ -546,7 +645,7 @@ def main(argv=None):
     else:
         katalog, tryb = wspolne.znajdz_katalog_roboczy()
     if katalog is None and not a.wyjscie:
-        sys.exit("Nie znaleziono katalogu roboczego retro. Załóż go: python zaloz.py --tryb konto|projekt (patrz SKILL.md).")
+        sys.exit("Nie znaleziono katalogu roboczego retro. Załóż go skryptem zaloz.py --tryb konto|projekt (patrz SKILL.md).")
     konf = wspolne.wczytaj_konfiguracje(katalog)
 
     od_data = dt.date.fromisoformat(a.od)
@@ -557,7 +656,7 @@ def main(argv=None):
     wyjscie.mkdir(parents=True, exist_ok=True)
 
     projekty = Projekty(konf)
-    sesje = wszystkie_sesje(od, do, projekty)
+    sesje, w_scratchpadzie = wszystkie_sesje(od, do, projekty)
 
     # zakres: tryb projektu = tylko repo, w którym leży .retro; --projekt zawęża; pomin_projekty wyklucza
     repo_projektu = None
@@ -578,9 +677,12 @@ def main(argv=None):
     per_projekt = collections.defaultdict(list)
     for s in sesje:
         per_projekt[s.projekt[0]].append(s)
+    zamazane = 0
     for nazwa, lista in per_projekt.items():
         lista.sort(key=lambda s: s.pierwszy)
-        (wyjscie / f"{nazwa_pliku(nazwa)}.md").write_text(raport_projektu(nazwa, lista, od_data, do_data), encoding="utf-8")
+        tresc, n = zamaz(raport_projektu(nazwa, lista, od_data, do_data))
+        zamazane += n
+        (wyjscie / f"{nazwa_pliku(nazwa)}.md").write_text(tresc, encoding="utf-8")
 
     # repozytoria: wykryte z sesji w zakresie + dodatkowe z konfiguracji
     repozytoria = {}
@@ -604,7 +706,7 @@ def main(argv=None):
         foldery = sorted(projekty_folderow)
     else:
         foldery = sorted(p for p in (wspolne.katalog_claude() / "projects").glob("*") if p.is_dir())
-    pamiec_liczba, pamiec_zmiany = pamiec(foldery, od, projekty_folderow)
+    pamiec_liczba, pamiec_zmiany, pamiec_bez_sesji = pamiec(foldery, od, projekty_folderow)
 
     suma = collections.Counter()
     for s in sesje:
@@ -639,7 +741,16 @@ def main(argv=None):
     l = [f"# Sygnały do retro: {od_data} … {do_data}", "",
          f"Wygenerowano {dt.datetime.now():%Y-%m-%d %H:%M} skryptem `scripts/sygnaly.py` skillu retro. Zakres: {zakres}. "
          "Liczby z heurystyk (np. „możliwa korekta”) są wskazówką, nie dowodem: dowodem jest wpis w osi czasu projektu.", "",
-         "## Metryki", "", "| metryka | wartość |", "|---|---|"]
+         f"Wiadomości właściciela wysłane w trakcie pracy Claude'a: {suma['wiad_w_trakcie']} (wliczone w `wiad_wlasciciela`). "
+         f"Pominięte sesje uruchomione w scratchpadzie (np. testy `claude -p`): {w_scratchpadzie}. "
+         f"Ciągi wyglądające na sekrety zamazane w osiach czasu: {zamazane} (heurystyka; patrz `references/sygnaly.md`).", "",
+         ]
+    retencja = retencja_dni()
+    if retencja > 0 and (dt.date.today() - od_data).days > retencja:
+        l += [f"**Uwaga:** okno zaczyna się {(dt.date.today() - od_data).days} dni temu, a Claude Code usuwa transkrypcje "
+              f"starsze niż {retencja} dni (`cleanupPeriodDays`). Sesje sprzed {dt.date.today() - dt.timedelta(days=retencja)} "
+              "mogły już zniknąć z dysku, więc liczby dla początku okna są zaniżone.", ""]
+    l += ["## Metryki", "", "| metryka | wartość |", "|---|---|"]
     l += [f"| {k} | {v} |" for k, v in metryki.items()]
     l += ["", "## Projekty", "", "| projekt | sesje | wiad. wł. | [K?] | pytania | rek. | inna | własna | odłożone | przerw. | blokady | błędy | kompakty | podagenci |",
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
@@ -651,18 +762,31 @@ def main(argv=None):
                  f"{c['pyt_rekomendowana']} | {c['pyt_inna']} | {c['pyt_wlasna']} | {c['pyt_odlozone']} | {c['przerwania']} | "
                  f"{c['blokady_klasyfikatora'] + c['blokady_u_podagentow']} | {c['bledy_narzedzi']} | {c['kompakty']} | {c['podagenci']} |")
     l += ["", "## Pora wiadomości właściciela", ""] + [f"- {k}: {v}" for k, v in sorted(pory.items())]
-    l += ["", "## Repozytoria", "", "| repo | ścieżka | commity | fix | revert | zmiany reguł | PR otw. | PR scal. | mediana h do scalenia | mediana commitów/PR | CI porażki/wszystkie | gh |",
-          "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    l += ["", "## Repozytoria", "", "| repo | ścieżka | commity | fix | revert | zmiany reguł | PR otw. | PR scal. | mediana h do scalenia | mediana commitów/PR | CI porażki/wszystkie | za zdalną | gh |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for nazwa, r in repo.items():
         med_h = statistics.median(r["pr_h_do_scalenia"]) if r["pr_h_do_scalenia"] else "—"
         med_c = statistics.median(r["pr_commity"]) if r["pr_commity"] else "—"
+        za = "—" if r["za_zdalna"] is None else r["za_zdalna"]
         l.append(f"| {nazwa} | `{repozytoria[nazwa]}` | {r['commity']} | {r['commity_fix']} | {r['reverty']} | {r['zmiany_regul']} | {r['pr_otwarte']} | "
-                 f"{r['pr_scalone']} | {med_h} | {med_c} | {r['ci_porazki']}/{r['ci_wszystkie']} | {r['gh']} |")
+                 f"{r['pr_scalone']} | {med_h} | {med_c} | {r['ci_porazki']}/{r['ci_wszystkie']} | {za} | {r['gh']} |")
     l += ["", "## Pliki reguł (linie)", ""] + [f"- {n} `{p}`: {k}" for n, p, k in regul]
+    w_tyle = [(nazwa, r["za_zdalna"]) for nazwa, r in repo.items() if r["za_zdalna"]]
+    if w_tyle:
+        l += ["", "**Uwaga:** checkout jest za zdalną gałęzią (wg ostatniego `git fetch`), więc liczby linii reguł i ich treść "
+              "na dysku mogą być nieaktualne: " + ", ".join(f"{n} o {k} commitów" for n, k in w_tyle) + ". "
+              "Czytaj reguły z `git show @{u}:CLAUDE.md`."]
+    l += ["", "Liczone są pliki `CLAUDE.md` (śledzone na dowolnej głębokości), `CLAUDE.local.md` i `pliki_regul_dodatkowe` "
+          "z konfiguracji. Inne pliki, do których reguły odsyłają jako wiążących, dopisz do `pliki_regul_dodatkowe`."]
     l += ["", f"## Pamięć: {pamiec_liczba} plików, zmienione w oknie: {len(pamiec_zmiany)}", ""]
     l += [f"- `{zm:%m-%d %H:%M}` {proj} / {nazwa}" for proj, nazwa, zm in pamiec_zmiany]
-    (wyjscie / "podsumowanie.md").write_text("\n".join(l) + "\n", encoding="utf-8")
-    print(f"OK: {len(sesje)} sesji, {len(per_projekt)} projektów, {len(repo)} repo -> {wyjscie}")
+    if pamiec_bez_sesji:
+        l += ["", "Projekty z pamięcią, ale bez lokalnej sesji w oknie (praca gdzie indziej albo projekt uśpiony; "
+              "ich repo i pliki reguł nie są tu liczone, dodaj je w `repozytoria_dodatkowe`):", ""]
+        l += [f"- …{folder}: {n} plików pamięci" for folder, n in pamiec_bez_sesji]
+    tresc, n = zamaz("\n".join(l) + "\n")
+    (wyjscie / "podsumowanie.md").write_text(tresc, encoding="utf-8")
+    print(f"OK: {len(sesje)} sesji, {len(per_projekt)} projektów, {len(repo)} repo, zamazane sekrety: {zamazane + n} -> {wyjscie}")
     return metryki
 
 

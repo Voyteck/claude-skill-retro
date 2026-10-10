@@ -182,6 +182,129 @@ class TestSygnaly(Srodowisko):
         self.assertIn("zaloz.py", r.stderr)
 
 
+class TestZamazywanie(unittest.TestCase):
+    """Sekrety w testach są zmyślone."""
+
+    def setUp(self):
+        import sygnaly
+        self.zamaz = sygnaly.zamaz
+
+    def sprawdz(self, tekst, sekret, zostaje=()):
+        wynik, n = self.zamaz(tekst)
+        self.assertNotIn(sekret, wynik, tekst)
+        self.assertGreaterEqual(n, 1)
+        for fragment in zostaje:
+            self.assertIn(fragment, wynik)
+
+    def test_zamazuje(self):
+        self.sprawdz("gh secret set BRAMA_KEY --body 'tajne haslo 1'", "tajne haslo 1", ["gh secret set BRAMA_KEY --body"])
+        self.sprawdz('{"command": "gh secret set X --repo a/b --body \\"wartosc z odstepem 9\\""}', "wartosc z odstepem 9")
+        self.sprawdz("ustaw API_KEY=abc123def456 w .env", "abc123def456", ["API_KEY="])
+        self.sprawdz("hasło: Zimowe7Slonce i dalej", "Zimowe7Slonce", ["hasło:", "i dalej"])
+        self.sprawdz("Authorization: Bearer abcdefghij0123456789", "abcdefghij0123456789")
+        self.sprawdz("token ghp_" + "a1B2" * 9 + " w logu", "ghp_" + "a1B2" * 9, ["w logu"])
+        self.sprawdz("klucz to 9f8e7d6c5b4a39281706f5e4d3c2b1a0 koniec", "9f8e7d6c5b4a39281706f5e4d3c2b1a0", ["koniec"])
+        self.sprawdz("-----BEGIN OPENSSH PRIVATE KEY-----\nAAAAB3Nz\n-----END OPENSSH PRIVATE KEY-----", "AAAAB3Nz")
+
+    def test_nie_rusza_dowodow(self):
+        teksty = [
+            "commit 3f2a9c1d4e5b6a7f8091a2b3c4d5e6f708192a3b jest na main",                      # pełny hash gita
+            "obraz php@sha256:" + "0a1b" * 16,                                                   # digest obrazu
+            "sesja 6388d886-4e8a-492c-a96c-f0612cd42618 w C:\\Users\\x\\.claude\\projects\\c--Users-x-Workspaces-app",
+            "gh pr create --title t --body 'Opis zmiany na 3 zdania'",                             # opis PR to nie sekret
+            "klucz: zmiana progu, token wygasa jutro, hasło do ustalenia",                        # proza bez wartości
+            "plik feedback_przenoszenie_commitow_bez_checkoutu.md i test_standards_digest_is_one_text.py",
+        ]
+        for tekst in teksty:
+            wynik, n = self.zamaz(tekst)
+            self.assertEqual((wynik, n), (tekst, 0), tekst)
+
+
+class TestSygnalyUzupelnienia(Srodowisko):
+    def dopisz(self, nazwa_folderu, plik, rekordy):
+        folder = self.claude / "projects" / nazwa_folderu
+        folder.mkdir(parents=True, exist_ok=True)
+        with (folder / plik).open("a", encoding="utf-8") as f:
+            for r in rekordy:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    def sygnaly(self):
+        self.zaloz_konto()
+        wyjscie = self.tmp / "wyn"
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--bez-gh", "--wyjscie", str(wyjscie))
+        return wyjscie, json.loads((wyjscie / "metryki.json").read_text(encoding="utf-8"))
+
+    def test_wiadomosc_w_trakcie_pracy(self):
+        pola = {"cwd": str(self.repo), "sessionId": "x", "timestamp": ts()}
+        kolejka = lambda tekst, rodzaj: {"type": "attachment", **pola, "attachment": {  # noqa: E731
+            "type": "queued_command", "commandMode": "prompt", "origin": {"kind": rodzaj}, "prompt": tekst}}
+        self.dopisz("f-repo", "sesja-repo.jsonl", [
+            kolejka("ale ile to będzie kosztować?", "human"),
+            kolejka("<task-notification>koniec</task-notification>", "task-notification"),
+            # ta sama treść zapisana także jako zwykła wiadomość: liczy się raz
+            {"type": "user", **pola, "origin": {"kind": "human"}, "message": {"content": "ale ile to będzie kosztować?"}},
+        ])
+        wyjscie, m = self.sygnaly()
+        self.assertEqual(m["wiad_wlasciciela"], 3)           # 2 z transkrypcji bazowych + 1 z kolejki
+        os_czasu = (wyjscie / "repo.md").read_text(encoding="utf-8")
+        self.assertIn("**Właściciel (w trakcie pracy Claude'a):** ale ile to będzie kosztować?", os_czasu)
+        self.assertNotIn("task-notification", os_czasu)
+        self.assertIn("w trakcie pracy Claude'a: 1", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
+
+    def test_sekret_nie_trafia_do_raportu(self):
+        pola = {"cwd": str(self.repo), "sessionId": "x", "timestamp": ts()}
+        sekret = "Zm9vYmFyMTIzNDU2Nzg5MGFiY2RlZmdoaWprbG1ub3A"
+        self.dopisz("f-repo", "sesja-repo.jsonl", [
+            {"type": "user", **pola, "origin": {"kind": "human"},
+             "message": {"content": f"powiedz drugiej sesji: klucz bramy to {sekret}"}},
+            {"type": "assistant", **pola, "message": {"model": "m", "content": [
+                {"type": "tool_use", "id": "s1", "name": "Bash", "input": {"command": f"gh secret set K --body '{sekret}'"}}]}},
+            {"type": "user", **pola, "message": {"content": [{"type": "tool_result", "tool_use_id": "s1", "is_error": True,
+             "content": "Permission for this action was denied by the Claude Code auto mode classifier. Reason: x"}]}},
+        ])
+        wyjscie, _ = self.sygnaly()
+        for plik in wyjscie.glob("*.md"):
+            self.assertNotIn(sekret, plik.read_text(encoding="utf-8"), plik.name)
+        os_czasu = (wyjscie / "repo.md").read_text(encoding="utf-8")
+        self.assertIn("klucz bramy to [zamazane]", os_czasu)
+        self.assertIn("gh secret set K --body [zamazane]", os_czasu)
+
+    def test_sesja_w_scratchpadzie_pominieta(self):
+        scratch = self.tmp / "Temp" / "claude" / "C--proj" / "6388d886-4e8a-492c-a96c-f0612cd42618" / "scratchpad"
+        scratch.mkdir(parents=True)
+        self.dopisz("f-scratchpad", "test.jsonl", transkrypcja(str(scratch), "claude -p"))
+        wyjscie, m = self.sygnaly()
+        self.assertEqual(m["sesje"], 2)
+        self.assertEqual(m["wiad_wlasciciela"], 2)
+        self.assertFalse((wyjscie / "scratchpad.md").exists())
+        self.assertIn("scratchpadzie (np. testy `claude -p`): 1", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
+
+    def test_reguly_zagniezdzone_i_pamiec_bez_sesji(self):
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-C", str(self.repo)]
+        (self.repo / "a" / "b").mkdir(parents=True)
+        (self.repo / "a" / "b" / "CLAUDE.md").write_text("# głęboko\n1\n2\n3\n", encoding="utf-8")
+        subprocess.run(git + ["add", "a/b/CLAUDE.md"], check=True)
+        subprocess.run(git + ["commit", "-q", "-m", "docs: reguły w podkatalogu"], check=True)
+        uspiony = self.claude / "projects" / "f-uspiony" / "memory"
+        uspiony.mkdir(parents=True)
+        (uspiony / "notatka.md").write_text("x", encoding="utf-8")
+        wyjscie, m = self.sygnaly()
+        podsumowanie = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn(str(pathlib.Path("a") / "b" / "CLAUDE.md"), podsumowanie)
+        self.assertEqual(m["claude_md_linie"], 2 + 4)
+        self.assertEqual(m["pamiec_pliki"], 2)
+        self.assertIn("f-uspiony: 1 plików pamięci", podsumowanie)
+        self.assertNotIn("cleanupPeriodDays", podsumowanie)      # okno z dziś mieści się w retencji
+
+    def test_ostrzezenie_o_retencji(self):
+        self.zaloz_konto()
+        (self.claude / "settings.json").write_text(json.dumps({"cleanupPeriodDays": 10}), encoding="utf-8")
+        wyjscie = self.tmp / "wyn"
+        od = (dt.date.today() - dt.timedelta(days=11)).isoformat()
+        self.uruchom("sygnaly.py", "--od", od, "--bez-gh", "--wyjscie", str(wyjscie))
+        self.assertIn("starsze niż 10 dni (`cleanupPeriodDays`)", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
+
+
 class TestPrzypomnienie(Srodowisko):
     def hook(self, cwd, dzis=None):
         argumenty = ["--dzis", dzis] if dzis else []
