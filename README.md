@@ -67,7 +67,8 @@ Potem założy katalog roboczy i przeprowadzi **retro zero**: bilans dotychczaso
 plugins/retro/.claude-plugin/plugin.json manifest pluginu (wersja)
 plugins/retro/hooks/hooks.json           przypomnienie przy starcie sesji
 plugins/retro/skills/retro/SKILL.md      procedura retro (instrukcje dla Claude'a)
-plugins/retro/skills/retro/scripts/      sygnaly.py, tokeny.py, dopisz_metryki.py, zaloz.py, przypomnienie.py, wspolne.py
+plugins/retro/skills/retro/scripts/      sygnaly.py, tokeny.py, zbierz_liczby.py, dopisz_metryki.py, zaloz.py, przypomnienie.py,
+                                         wspolne.py
 plugins/retro/skills/retro/assets/       szablony: retro, rejestr, metryki, nauki, README katalogu
 plugins/retro/skills/retro/references/   konfiguracja.md, sygnaly.md (znaczenie metryk), cennik.json
 testy/test_retro.py                      testy na sztucznych transkrypcjach

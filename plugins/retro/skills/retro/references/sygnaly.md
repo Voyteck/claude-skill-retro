@@ -90,25 +90,41 @@ właściciela i kompaktów, `cost-state`; bez treści rozmów) i z archiwum licz
 czas lokalny) do `tokeny-tydzien.csv` w katalogu roboczym. Archiwum chroni historię przed `cleanupPeriodDays`:
 transkrypcja usunięta po 30 dniach zostaje w archiwum, jeśli skrypt zdążył ją przeczytać.
 
-- **Klucz wiersza:** (`tydzien`, `zrodlo`). Skrypt pisze tylko `zrodlo=lokalne`; wiersze innych źródeł
-  (np. `sandbox` dopisany ręcznie albo innym skryptem) i nieznane kolumny zostawia. Wiersz bez `zrodlo` jest
-  traktowany jako lokalny.
+- **Klucz wiersza:** (`tydzien`, `zrodlo`). Skrypt pisze `zrodlo=lokalne` i wiersze źródeł zdalnych
+  z konfiguracji (`zrodlo=<nazwa>`, niżej). Wiersze innych źródeł (np. pomiary ręczne, także po kilka na tydzień)
+  zostają dosłownie, a nieznane kolumny i uwagi w `pokrycie` dopisane ręcznie zostają też w wierszach skryptu.
+  Wiersz bez `zrodlo` jest traktowany jako lokalny.
 - **Bez duplikatów:** tydzień jest nadpisywany przy każdym przebiegu (także niepełny, oznaczony „okres
   niezakończony”), chyba że wiersz w pliku widział więcej wywołań; wtedy zostaje stary z uwagą w `pokrycie`
   (dane sprzed archiwum usunięte przez retencję).
+- **Źródła zdalne** (`zrodla_zdalne` w konfiguracji, domyślnie brak): druga maszyna, na której też działa Claude
+  Code (sandbox, serwer). Dla każdego źródła skrypt robi **jedną** próbę odczytu, bez ponawiania:
+  - `polecenie`: lista argumentów (albo napis), np. `["ssh", "-T", "host", "python3 -"]` albo z `docker exec -i
+    <kontener> python3 -` w napisie dla ssh. Skrypt podaje na stdin `scripts/zbierz_liczby.py`, który na tamtej
+    maszynie czyta `~/.claude/projects` i wypisuje same liczby (bez treści rozmów); niczego tam nie zapisuje.
+  - `plik`: wynik `zbierz_liczby.py` zapisany wcześniej (ścieżka względna wobec katalogu roboczego albo
+    bezwzględna), gdy połączenie robi właściciel sam:
+    `ssh -T <host> python3 - < <skill>/scripts/zbierz_liczby.py > <katalog roboczy>/dane/<nazwa>-liczby.json`.
+  - `wlaczone: false` wyłącza źródło, `limit_s` zmienia limit czasu (domyślnie 300 s); `--bez-zdalnych` pomija
+    wszystkie przy jednym przebiegu.
+
+  Odczyt trafia do osobnego archiwum `dane/tokeny-archiwum-<nazwa>.json` (ten sam format, plus lista `odczyty`
+  z metadanymi każdego odczytu) i do wierszy `zrodlo=<nazwa>`. Gdy odczyt się nie uda, podsumowanie mówi dlaczego,
+  a trend źródła liczy się z archiwum bez nowych danych. Czas zdalnych zdarzeń przychodzi w UTC i jest zamieniany
+  na czas lokalny tej maszyny.
 - **Kolumny** jak w metrykach okna, ale na tydzień: `koszt_api_usd`, `koszt_api_usd_ceny_55` (Opus/Sonnet/Haiku
   po cenach modeli z `rodziny_biezace` cennika, żeby zmiana cennika nie udawała zmiany sposobu pracy),
   `koszt_na_wiad`, `wywolania_na_wiad`, `kontekst_mediana`, `kontekst_p90`, `proc_wywolan_ponad_200k`, udziały
   odczytu i zapisu cache w koszcie, `wybudzenia` z kosztem, udział podagentów i Opusa, `kontekst_startowy_mediana`
   (bez sesji `claude -p`), `kompakty`, kontrola `koszt_cost_state_usd` wobec `koszt_policzony_tych_sesji` (sesje
   przypisane do tygodnia ostatniego wywołania). Kolumny `*_sygnaly` i `pokrycie_wiad_proc` są na porównanie
-  z wcześniejszymi wyciągami; skrypt zostawia je puste.
+  z wcześniejszymi wyciągami; skrypt ich nie liczy i nie zmienia.
 - **Trend w podsumowaniu:** ostatnie 4 zakończone tygodnie z aktywnością wobec mediany 8 wcześniejszych, osobno dla
   każdego źródła. Mediana ostatnich wyższa o ponad 20% = **↑ pogorszenie**, niższa = ↓ poprawa; przy mniej niż
   3 wcześniejszych tygodniach „za mało danych”. Tygodnie z 1–2 sesjami są głośne: strzałka to wskazówka, dowodem
   są sesje tego tygodnia.
 - **Wiadomości właściciela** w trendzie liczone jak w osiach czasu (bez poleceń `/…`, powiadomień, wiadomości
-  i briefów innych sesji).
+  i briefów innych sesji, promptów `claude -p`; sam zrzut ekranu jest wiadomością).
 
 ## Ograniczenia
 

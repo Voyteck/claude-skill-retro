@@ -337,6 +337,7 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                 # Wiadomość wysłana w trakcie pracy Claude'a: wchłonięta w turę, bez własnego rekordu „user”.
                 zal = d.get("attachment") or {}
                 if (zal.get("type") == "queued_command" and (zal.get("origin") or {}).get("kind") == "human"
+                        and d.get("entrypoint") != "sdk-cli"
                         and isinstance(zal.get("prompt"), str) and zal["prompt"].strip()
                         and not zal["prompt"].lstrip().startswith(NIE_WLASCICIEL)):
                     wiadomosc_wlasciciela(zal["prompt"], czas, w_trakcie=True)
@@ -395,7 +396,7 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                 continue
             if tekst.lstrip().startswith(NIE_WLASCICIEL):
                 continue
-            if pochodzenie in ("human", None) and tekst.strip():
+            if pochodzenie in ("human", None) and tekst.strip() and d.get("entrypoint") != "sdk-cli":  # bez `claude -p`
                 wiadomosc_wlasciciela(tekst, czas)
 
     # podagenci tej sesji: faktyczny typ i model z ich własnych transkrypcji
@@ -775,7 +776,7 @@ def tys(n) -> str:
     return "—" if n is None else f"{n / 1000:.0f}k"
 
 
-def raport_trendu(wiersze, uwaga: str) -> list:
+def raport_trendu(wiersze, uwaga: str, zdalne: list = ()) -> list:
     l = ["", "## Trend tokenów (tydzień po tygodniu)", ""]
     if wiersze is None:
         return l + [f"Trend {uwaga}."]
@@ -783,9 +784,15 @@ def raport_trendu(wiersze, uwaga: str) -> list:
           f"Ostatnie {tokeny.OSTATNIE_TYGODNIE} zakończone tygodnie z aktywnością wobec mediany "
           f"{tokeny.WCZESNIEJSZE_TYGODNIE} wcześniejszych; zmiana o więcej niż {tokeny.PROG_ZMIANY:.0%} to strzałka. "
           "Dla każdego wskaźnika więcej = gorzej; **↑** oznacza pogorszenie."]
+    if zdalne:
+        l += ["", "Źródła zdalne (`zrodla_zdalne`):", ""] + [f"- {u}" for u in zdalne]
     zrodla = sorted({w.get("zrodlo") or tokeny.ZRODLO for w in wiersze})
     fmt = lambda v: "—" if v is None else (f"{v / 1000:.0f}k" if abs(v) >= 10000 else f"{v:g}")  # noqa: E731
     for zrodlo in zrodla:
+        tygodnie = [w.get("tydzien") for w in wiersze if (w.get("zrodlo") or tokeny.ZRODLO) == zrodlo]
+        if len(tygodnie) != len(set(tygodnie)):
+            l += ["", f"Źródło `{zrodlo}`: kilka wierszy na tydzień (pomiary okienne), bez tabeli trendu."]
+            continue
         wyniki = tokeny.trend(wiersze, zrodlo)
         l += ["", f"Źródło `{zrodlo}`:", "",
               "| wskaźnik | mediana wcześniej (tyg.) | ostatnie tygodnie | mediana ostatnich | kierunek |", "|---|---|---|---|---|"]
@@ -886,6 +893,8 @@ def main(argv=None):
     ap.add_argument("--bez-gh", action="store_true", help="nie pytaj GitHuba (PR-y, CI)")
     ap.add_argument("--bez-trendu", action="store_true",
                     help=f"nie zapisuj archiwum tokenów ani {tokeny.PLIK_TRENDU} w katalogu roboczym")
+    ap.add_argument("--bez-zdalnych", action="store_true",
+                    help="nie odczytuj źródeł zdalnych trendu (`zrodla_zdalne` w konfiguracji)")
     a = ap.parse_args(argv)
 
     if a.katalog:
@@ -936,7 +945,7 @@ def main(argv=None):
     tok = metryki_tokenow(sesje, od, do, cennik)
 
     # Trend tygodniowy: cała historia (transkrypcje + archiwum), tylko dla pełnego zakresu (bez --projekt).
-    trend_wiersze, trend_uwaga = None, ""
+    trend_wiersze, trend_uwaga, zdalne_uwagi = None, "", []
     if a.bez_trendu or katalog is None:
         trend_uwaga = "pominięty (`--bez-trendu` albo brak katalogu roboczego)"
     elif wybrane:
@@ -945,6 +954,24 @@ def main(argv=None):
         historia, _ = wszystkie_sesje(EPOKA, dt.datetime.now().astimezone() + dt.timedelta(days=1), projekty, konf)
         arch = tokeny.aktualizuj_archiwum(katalog / tokeny.PLIK_ARCHIWUM, [s for s in historia if w_zakresie(s)])
         trend_wiersze = tokeny.zapisz_trend(katalog / tokeny.PLIK_TRENDU, tokeny.wiersze_tygodni(arch, cennik))
+        # Źródła zdalne (`zrodla_zdalne`): osobne archiwum i wiersze `zrodlo=<nazwa>`; jedna próba na źródło.
+        for zrodlo in konf.get("zrodla_zdalne") or []:
+            nazwa = str(zrodlo.get("nazwa") or "").strip()
+            if not nazwa or nazwa == tokeny.ZRODLO or zrodlo.get("wlaczone") is False:
+                continue
+            if a.bez_zdalnych:
+                zdalne_uwagi.append(f"`{nazwa}`: pominięte (`--bez-zdalnych`)")
+                continue
+            odczyt, opis = tokeny.odczytaj_zrodlo(zrodlo, katalog)
+            if odczyt is None:
+                zdalne_uwagi.append(f"`{nazwa}`: **brak odczytu** ({zamaz(opis)[0]}); trend tego źródła bez nowych danych")
+                continue
+            plik_arch = katalog / tokeny.PLIK_ARCHIWUM.parent / f"tokeny-archiwum-{nazwa_pliku(nazwa)}.json"
+            arch_z = tokeny.scal_odczyt(plik_arch, odczyt)
+            trend_wiersze = tokeny.zapisz_trend(katalog / tokeny.PLIK_TRENDU,
+                                                tokeny.wiersze_tygodni(arch_z, cennik, zrodlo=nazwa))
+            zdalne_uwagi.append(f"`{nazwa}`: {opis}, {len(odczyt.get('calls') or {})} wywołań w odczycie, "
+                                f"{len(arch_z['calls'])} w archiwum `{plik_arch.name}`")
     per_projekt = collections.defaultdict(list)
     for s in sesje:
         per_projekt[s.projekt[0]].append(s)
@@ -1045,7 +1072,7 @@ def main(argv=None):
                  f"{c['blokady_klasyfikatora'] + c['blokady_u_podagentow']} | {c['bledy_narzedzi']} | {c['kompakty']} | {c['podagenci']} | ${koszt:.2f} |")
     l += ["", "## Pora wiadomości właściciela", ""] + [f"- {k}: {v}" for k, v in sorted(pory.items())]
     l += raport_tokenow(tok, sesje)
-    l += raport_trendu(trend_wiersze, trend_uwaga)
+    l += raport_trendu(trend_wiersze, trend_uwaga, zdalne_uwagi)
     l += ["", "## Repozytoria", "", "| repo | ścieżka | commity | bez lok. sesji | fix | revert | zmiany reguł | PR otw. | bez lok. sesji | PR scal. | mediana h do scalenia | mediana commitów/PR | CI porażki/wszystkie | za zdalną | gh |",
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for nazwa, r in repo.items():

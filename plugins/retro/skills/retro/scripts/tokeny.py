@@ -165,14 +165,92 @@ def czas_naiwny(czas) -> str:
     return czas.astimezone().replace(tzinfo=None).isoformat()
 
 
-def aktualizuj_archiwum(plik: pathlib.Path, sesje: list) -> dict:
-    """Dopisuje do archiwum wywołania, wiadomości właściciela, kompakty i `cost-state` sesji; zwraca całość.
-    Archiwum ma pierwszeństwo tylko dla tego, czego transkrypcje już nie mają."""
+def czas_zdarzenia(t: str):
+    """Czas zdarzenia z archiwum: naiwny lokalny (format archiwum) albo ze strefą (wynik `zbierz_liczby.py`)."""
+    if t.endswith("Z") or "+" in t[10:] or "-" in t[10:]:
+        c = czas_lokalny(t)
+        return c.replace(tzinfo=None) if c else None
+    try:
+        return dt.datetime.fromisoformat(t)
+    except ValueError:
+        return None
+
+
+def wczytaj_archiwum(plik: pathlib.Path) -> dict:
     arch = {"calls": {}, "owner": [], "compacts": [], "cost_state": {}}
     try:
         arch.update(json.loads(plik.read_text(encoding="utf-8")))
     except (OSError, ValueError):
         pass
+    return arch
+
+
+def zapisz_archiwum(plik: pathlib.Path, arch: dict):
+    plik.parent.mkdir(parents=True, exist_ok=True)
+    tymczasowy = plik.with_name(plik.name + ".tmp")
+    tymczasowy.write_text(json.dumps(arch, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    os.replace(tymczasowy, plik)
+
+
+def scal_odczyt(plik: pathlib.Path, odczyt: dict) -> dict:
+    """Dopisuje wynik `zbierz_liczby.py` (albo archiwum w tym samym formacie) do archiwum źródła i zwraca całość:
+    wywołania po message.id, wiadomości i kompakty sumą zbiorów (czas lokalny bez strefy), cost-state maksimum."""
+    arch = wczytaj_archiwum(plik)
+    arch["calls"].update(odczyt.get("calls") or {})
+    for klucz in ("owner", "compacts"):
+        zdarzenia = {tuple(x) for x in arch[klucz]}
+        for t, sid in odczyt.get(klucz) or []:
+            c = czas_zdarzenia(t)
+            if c:
+                zdarzenia.add((c.isoformat(), sid))
+        arch[klucz] = sorted(zdarzenia)
+    for sid, v in (odczyt.get("cost_state") or {}).items():
+        arch["cost_state"][sid] = max(arch["cost_state"].get(sid, 0), v or 0)
+    if odczyt.get("meta"):
+        arch.setdefault("odczyty", []).append(odczyt["meta"])
+    zapisz_archiwum(plik, arch)
+    return arch
+
+
+def odczytaj_zrodlo(zrodlo: dict, katalog: pathlib.Path, limit_s: int = 300):
+    """Odczyt źródła zdalnego z konfiguracji: (dane, opis) albo (None, opis błędu). `polecenie` (lista argumentów
+    albo napis) dostaje `zbierz_liczby.py` na stdin i zwraca JSON na stdout; `plik` to taki JSON zapisany wcześniej.
+    Jedna próba, bez ponawiania: brak odpowiedzi maszyny zdalnej to nie awaria retro."""
+    import shlex
+    import subprocess
+    if zrodlo.get("polecenie"):
+        polecenie = zrodlo["polecenie"]
+        if isinstance(polecenie, str):
+            polecenie = shlex.split(polecenie)
+        skrypt = (pathlib.Path(__file__).resolve().parent / "zbierz_liczby.py").read_bytes()
+        try:
+            r = subprocess.run(polecenie, input=skrypt, capture_output=True, timeout=zrodlo.get("limit_s", limit_s))
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return None, f"polecenie nie zadziałało: {e}"
+        if r.returncode != 0:
+            return None, f"polecenie zwróciło {r.returncode}: " + r.stderr.decode("utf-8", "replace").strip()[:200]
+        try:
+            return json.loads(r.stdout.decode("utf-8")), "odczyt poleceniem"
+        except ValueError:
+            return None, "polecenie nie zwróciło JSON-a: " + r.stdout[:120].decode("utf-8", "replace")
+    if zrodlo.get("plik"):
+        p = pathlib.Path(zrodlo["plik"]).expanduser()
+        p = p if p.is_absolute() else katalog / p
+        try:
+            dane = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            return None, f"nie da się odczytać pliku `{p}`: {e}"
+        kiedy = (dane.get("meta") or {}).get("odczyt_utc") or (dane.get("meta") or {}).get("read_at_utc")
+        if not kiedy:
+            kiedy = dt.datetime.fromtimestamp(p.stat().st_mtime).astimezone().isoformat(timespec="minutes")
+        return dane, f"plik `{p.name}` z {kiedy[:16]}"
+    return None, "brak pola `polecenie` ani `plik`"
+
+
+def aktualizuj_archiwum(plik: pathlib.Path, sesje: list) -> dict:
+    """Dopisuje do archiwum wywołania, wiadomości właściciela, kompakty i `cost-state` sesji; zwraca całość.
+    Archiwum ma pierwszeństwo tylko dla tego, czego transkrypcje już nie mają."""
+    arch = wczytaj_archiwum(plik)
     wlasciciel = {tuple(x) for x in arch["owner"]}
     kompakty = {tuple(x) for x in arch["compacts"]}
     for s in sesje:
@@ -187,10 +265,7 @@ def aktualizuj_archiwum(plik: pathlib.Path, sesje: list) -> dict:
         if s.cost_state:
             arch["cost_state"][sid] = max(arch["cost_state"].get(sid, 0), s.cost_state)
     arch["owner"], arch["compacts"] = sorted(wlasciciel), sorted(kompakty)
-    plik.parent.mkdir(parents=True, exist_ok=True)
-    tymczasowy = plik.with_name(plik.name + ".tmp")
-    tymczasowy.write_text(json.dumps(arch, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    os.replace(tymczasowy, plik)
+    zapisz_archiwum(plik, arch)
     return arch
 
 
@@ -210,15 +285,15 @@ def kwantyl(wartosci, q):
     return v[lo] + (v[hi] - v[lo]) * (k - lo)
 
 
-def wiersze_tygodni(arch: dict, cennik: dict, dzis: dt.date = None) -> list:
-    """Wiersze trendu (zrodlo=lokalne) od tygodnia najstarszego wywołania archiwum do bieżącego."""
+def wiersze_tygodni(arch: dict, cennik: dict, dzis: dt.date = None, zrodlo: str = ZRODLO) -> list:
+    """Wiersze trendu źródła od tygodnia najstarszego wywołania archiwum do bieżącego."""
     dzis = dzis or dt.date.today()
     wywolania = [w for w in (z_rekordu(r) for r in arch.get("calls", {}).values()) if w["czas"]]
     if not wywolania:
         return []
-    naiwny = lambda t: dt.datetime.fromisoformat(t)  # noqa: E731
-    wlasciciel = collections.Counter(poniedzialek(naiwny(t)) for t, _ in arch.get("owner", []))
-    kompakty = collections.Counter(poniedzialek(naiwny(t)) for t, _ in arch.get("compacts", []))
+    zdarzenia = lambda klucz: [c for c in (czas_zdarzenia(t) for t, _ in arch.get(klucz, [])) if c]  # noqa: E731
+    wlasciciel = collections.Counter(poniedzialek(c) for c in zdarzenia("owner"))
+    kompakty = collections.Counter(poniedzialek(c) for c in zdarzenia("compacts"))
     for w in wywolania:
         w["tydzien"] = poniedzialek(w["czas"])
         c = czesci_kosztu(w, cennik)
@@ -271,7 +346,7 @@ def wiersze_tygodni(arch: dict, cennik: dict, dzis: dt.date = None) -> list:
         if not lista:
             uwagi.append("brak aktywności")
         wiersze.append({
-            "tydzien": tydzien.isoformat(), "zrodlo": ZRODLO,
+            "tydzien": tydzien.isoformat(), "zrodlo": zrodlo,
             "dni_z_sesjami": len({w["czas"].date() for w in glowne}),
             "sesje": len({w["sesja"] for w in glowne if w["ep"] != "sdk-cli"}),
             "sesje_headless": len({w["sesja"] for w in glowne if w["ep"] == "sdk-cli"}),
@@ -291,7 +366,6 @@ def wiersze_tygodni(arch: dict, cennik: dict, dzis: dt.date = None) -> list:
             if koszt_pod else "",
             "kontekst_startowy_mediana": zaokr(statistics.median(start[tydzien]), 0) if start.get(tydzien) else "",
             "kompakty": kompakty.get(tydzien, 0),
-            "wiad_wlasciciela_sygnaly": "", "sesje_sygnaly": "", "pokrycie_wiad_proc": "",
             "pokrycie": "; ".join(uwagi),
             "koszt_cost_state_usd": zaokr(cost_state[tydzien]) if tydzien in cost_state else "",
             "koszt_policzony_tych_sesji": zaokr(policzony[tydzien]) if tydzien in policzony else "",
@@ -301,8 +375,10 @@ def wiersze_tygodni(arch: dict, cennik: dict, dzis: dt.date = None) -> list:
 
 
 def zapisz_trend(plik: pathlib.Path, nowe: list) -> list:
-    """Scala nowe wiersze z plikiem trendu po (tydzien, zrodlo) i zwraca wszystkie wiersze. Wiersz z pliku zostaje,
-    gdy widział więcej wywołań (dane usunięte przez retencję przed archiwum); tydzień niepełny jest nadpisywany."""
+    """Scala nowe wiersze z plikiem trendu i zwraca wszystkie wiersze. Wiersze źródeł obecnych w `nowe` są
+    kluczowane po (tydzien, zrodlo): wiersz z pliku zostaje, gdy widział więcej wywołań (dane usunięte przez
+    retencję przed archiwum), a tydzień niepełny jest nadpisywany. Wiersze innych źródeł (np. pomiary ręczne,
+    także po kilka na tydzień) zostają dosłownie."""
     stare, kolumny = [], list(KOLUMNY_TRENDU)
     if plik.is_file():
         with plik.open(encoding="utf-8", newline="") as f:
@@ -310,7 +386,9 @@ def zapisz_trend(plik: pathlib.Path, nowe: list) -> list:
             kolumny += [k for k in (czytnik.fieldnames or []) if k not in kolumny]
             stare = list(czytnik)
     klucz = lambda w: (w.get("tydzien", ""), w.get("zrodlo") or ZRODLO)  # noqa: E731
-    wiersze = {klucz(w): w for w in stare}
+    wlasne = {w["zrodlo"] for w in nowe}
+    obce = [w for w in stare if klucz(w)[1] not in wlasne]
+    wiersze = {klucz(w): w for w in stare if klucz(w)[1] in wlasne}
     for w in nowe:
         stary = wiersze.get(klucz(w))
         try:
@@ -323,8 +401,13 @@ def zapisz_trend(plik: pathlib.Path, nowe: list) -> list:
                                               f"(teraz {w['wywolania_api']} wywołań, reszta usunięta przez retencję)") if x)
             stary["zrodlo"] = stary.get("zrodlo") or ZRODLO
         else:
-            wiersze[klucz(w)] = dict(stary or {}, **w)
-    wynik = [wiersze[k] for k in sorted(wiersze)]
+            nowy = dict(stary or {}, **w)
+            # własne uwagi skryptu są liczone od nowa; cudze (np. dopisane ręcznie) zostają
+            cudze = [u for u in ((stary or {}).get("pokrycie") or "").split("; ")
+                     if u and not u.startswith(("okres niezakończony", "brak aktywności"))]
+            nowy["pokrycie"] = "; ".join(cudze + [u for u in (w.get("pokrycie") or "").split("; ") if u and u not in cudze])
+            wiersze[klucz(w)] = nowy
+    wynik = sorted(list(wiersze.values()) + obce, key=lambda w: (*klucz(w), w.get("okno_od") or ""))
     with plik.open("w", encoding="utf-8", newline="") as f:
         pisarz = csv.DictWriter(f, fieldnames=kolumny, restval="", extrasaction="ignore", lineterminator="\n")
         pisarz.writeheader()
