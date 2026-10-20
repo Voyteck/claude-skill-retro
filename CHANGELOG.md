@@ -1,5 +1,29 @@
 # Zmiany
 
+## 0.1.4 · 2026-10-20
+
+Decyzje właściciela z R03 (sekcja 10), po wydaniu 0.1.3.
+
+- **Trend tokenów tydzień po tygodniu.** `sygnaly.py` dopisuje do `tokeny-tydzien.csv` w katalogu roboczym
+  (commitowany) wiersz na tydzień, bez duplikatów: tydzień niepełny jest nadpisywany. Kluczem jest para (tydzień,
+  źródło), więc skrypt pisze tylko `zrodlo=lokalne`, a wiersze innych źródeł (np. sandbox) zostają nietknięte.
+  Kolumny są zgodne z ręcznym `tokeny-tydzien-lokalne.csv` z R03. Podsumowanie ma sekcję „Trend tokenów”:
+  ostatnie 4 tygodnie wobec mediany 8 wcześniejszych, ze strzałkami i listą wskaźników, które się pogarszają.
+- **Archiwum liczb** `dane/tokeny-archiwum.json`: wywołania, czasy wiadomości i kompaktów, `cost-state`, bez treści
+  rozmów. Chroni trend przed `cleanupPeriodDays` (w R03 zniknęły tak sesje z 09-19). Format jest zgodny z archiwum
+  założonym ręcznie w R03. `--bez-trendu` pomija archiwum i trend.
+- Cennik i liczenie kosztu wydzielone do `scripts/tokeny.py`. W cenniku doszło `rodziny_biezace`, potrzebne do
+  kolumny „koszt w cenach bieżących modeli”.
+- Wiadomości właściciela nie obejmują już briefów innych sesji („Background (from the session…”),
+  `<system-reminder>` ani `<cross-session-message>`.
+- `SKILL.md`:
+  - krok 1: czytanie trendu;
+  - krok 4: „Zrobić teraz” od razu jako karta z przejściem do folderu projektu w briefie, bo w turze wywołanej
+    zdarzeniem automatycznym aplikacja pozwala tylko zaproponować kartę, a karta nie wskazuje folderu;
+  - krok 5: commit `tokeny-tydzien.csv`.
+- Nie ma jeszcze źródła zdalnego (sandbox przez ssh, opcjonalne pole konfiguracji): to następny krok.
+- Testy: 35 (było 30).
+
 ## 0.1.3 · 2026-10-20
 
 Propozycje z retro R02 (sekcja 10) i R03 (sekcje 2a, 7, 10).

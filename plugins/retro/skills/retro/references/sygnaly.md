@@ -82,6 +82,34 @@ Kolumny od 0.1.3 (w `metryki.csv` na końcu, za `zobowiazania_aktywne`; starsze 
   z dużym `commity_bez_sesji` nie ma sensu.
 - **Wybudzenie** liczy przerwę między wywołaniami sesji głównej; długi podagent (> 1 h) też ją tworzy.
 
+## Trend tygodniowy (`tokeny-tydzien.csv`)
+
+Przy każdym przebiegu (bez `--projekt` i `--bez-trendu`) `sygnaly.py` czyta całą historię transkrypcji w zakresie
+retro, dopisuje same liczby do archiwum `dane/tokeny-archiwum.json` (wywołania z `usage`, czasy wiadomości
+właściciela i kompaktów, `cost-state`; bez treści rozmów) i z archiwum liczy wiersz na każdy tydzień (poniedziałek,
+czas lokalny) do `tokeny-tydzien.csv` w katalogu roboczym. Archiwum chroni historię przed `cleanupPeriodDays`:
+transkrypcja usunięta po 30 dniach zostaje w archiwum, jeśli skrypt zdążył ją przeczytać.
+
+- **Klucz wiersza:** (`tydzien`, `zrodlo`). Skrypt pisze tylko `zrodlo=lokalne`; wiersze innych źródeł
+  (np. `sandbox` dopisany ręcznie albo innym skryptem) i nieznane kolumny zostawia. Wiersz bez `zrodlo` jest
+  traktowany jako lokalny.
+- **Bez duplikatów:** tydzień jest nadpisywany przy każdym przebiegu (także niepełny, oznaczony „okres
+  niezakończony”), chyba że wiersz w pliku widział więcej wywołań; wtedy zostaje stary z uwagą w `pokrycie`
+  (dane sprzed archiwum usunięte przez retencję).
+- **Kolumny** jak w metrykach okna, ale na tydzień: `koszt_api_usd`, `koszt_api_usd_ceny_55` (Opus/Sonnet/Haiku
+  po cenach modeli z `rodziny_biezace` cennika, żeby zmiana cennika nie udawała zmiany sposobu pracy),
+  `koszt_na_wiad`, `wywolania_na_wiad`, `kontekst_mediana`, `kontekst_p90`, `proc_wywolan_ponad_200k`, udziały
+  odczytu i zapisu cache w koszcie, `wybudzenia` z kosztem, udział podagentów i Opusa, `kontekst_startowy_mediana`
+  (bez sesji `claude -p`), `kompakty`, kontrola `koszt_cost_state_usd` wobec `koszt_policzony_tych_sesji` (sesje
+  przypisane do tygodnia ostatniego wywołania). Kolumny `*_sygnaly` i `pokrycie_wiad_proc` są na porównanie
+  z wcześniejszymi wyciągami; skrypt zostawia je puste.
+- **Trend w podsumowaniu:** ostatnie 4 zakończone tygodnie z aktywnością wobec mediany 8 wcześniejszych, osobno dla
+  każdego źródła. Mediana ostatnich wyższa o ponad 20% = **↑ pogorszenie**, niższa = ↓ poprawa; przy mniej niż
+  3 wcześniejszych tygodniach „za mało danych”. Tygodnie z 1–2 sesjami są głośne: strzałka to wskazówka, dowodem
+  są sesje tego tygodnia.
+- **Wiadomości właściciela** w trendzie liczone jak w osiach czasu (bez poleceń `/…`, powiadomień, wiadomości
+  i briefów innych sesji).
+
 ## Ograniczenia
 
 - **Tylko lokalne transkrypcje.** Sesje w chmurze (claude.ai/code) i na innych komputerach nie są widoczne.

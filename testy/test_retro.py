@@ -496,6 +496,95 @@ class Test013(Srodowisko):
         self.assertEqual(wiersze[1]["sesje"], str(m["sesje"]))
 
 
+class Test014(Srodowisko):
+    """Zmiany 0.1.4: trend tokenów tydzień po tygodniu, archiwum liczb, briefy innych sesji."""
+
+    dopisz = TestSygnalyUzupelnienia.dopisz
+    sygnaly = TestSygnalyUzupelnienia.sygnaly
+
+    def trend_csv(self):
+        import csv
+        with (self.tmp / "ws" / "tokeny-tydzien.csv").open(encoding="utf-8", newline="") as f:
+            return list(csv.DictReader(f))
+
+    def test_trend_tygodniowy_i_archiwum(self):
+        import tokeny
+        cwd = str(self.inny)
+        stary = dt.timedelta(days=-20)                   # inny tydzień niż „stara wiadomość” (-10 dni) z setUp
+        czlowiek = {"type": "user", "timestamp": ts(stary), "cwd": cwd, "sessionId": "x", "origin": {"kind": "human"},
+                    "message": {"content": "stara praca"}}
+        self.dopisz("f-stare", "stara.jsonl", [czlowiek, wywolanie("o1", stary, wyj=1000, cwd=cwd),
+                                               wywolanie("o2", stary + dt.timedelta(minutes=1), wyj=1000, cwd=cwd)])
+        self.dopisz("f-nowe", "nowa.jsonl", [wywolanie("n1", dt.timedelta(minutes=-1), wyj=500, cwd=cwd)])
+        self.zaloz_konto()
+        tydzien_stary = tokeny.poniedzialek(dt.datetime.now().astimezone() + stary).isoformat()
+        tydzien_biezacy = tokeny.poniedzialek(dt.date.today()).isoformat()
+        # wiersz innego źródła i nieznana kolumna zostają nietknięte
+        (self.tmp / "ws" / "tokeny-tydzien.csv").write_text(
+            f"tydzien,zrodlo,wywolania_api,notatka\n{tydzien_stary},sandbox,77,ręcznie\n", encoding="utf-8")
+        wyjscie, _ = self.sygnaly()
+        wiersze = {(w["tydzien"], w["zrodlo"]): w for w in self.trend_csv()}
+        self.assertEqual(wiersze[(tydzien_stary, "lokalne")]["wywolania_api"], "2")
+        self.assertEqual(wiersze[(tydzien_stary, "lokalne")]["wiad_wlasciciela"], "1")
+        self.assertEqual(wiersze[(tydzien_stary, "lokalne")]["koszt_api_usd"], "0.04")      # 2000 × $20/MTok
+        self.assertEqual(wiersze[(tydzien_stary, "sandbox")]["notatka"], "ręcznie")
+        self.assertEqual(wiersze[(tydzien_stary, "sandbox")]["wywolania_api"], "77")
+        self.assertIn("okres niezakończony", wiersze[(tydzien_biezacy, "lokalne")]["pokrycie"])
+        self.assertTrue((self.tmp / "ws" / "dane" / "tokeny-archiwum.json").is_file())
+        podsumowanie = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("## Trend tokenów", podsumowanie)
+        self.assertIn("Źródło `sandbox`", podsumowanie)
+        # retencja: transkrypcja znika, archiwum trzyma liczby, drugi przebieg nie dubluje wierszy
+        (self.claude / "projects" / "f-stare" / "stara.jsonl").unlink()
+        self.sygnaly()
+        wiersze2 = self.trend_csv()
+        self.assertEqual(len(wiersze2), len(wiersze))
+        stary_lok = [w for w in wiersze2 if (w["tydzien"], w["zrodlo"]) == (tydzien_stary, "lokalne")][0]
+        self.assertEqual((stary_lok["wywolania_api"], stary_lok["wiad_wlasciciela"]), ("2", "1"))
+
+    def test_bez_trendu_i_przy_zawezeniu(self):
+        self.zaloz_konto()
+        wyjscie = self.tmp / "wyn"
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--bez-gh", "--wyjscie", str(wyjscie), "--bez-trendu")
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--bez-gh", "--wyjscie", str(wyjscie), "--projekt", "repo")
+        self.assertFalse((self.tmp / "ws" / "tokeny-tydzien.csv").exists())
+        self.assertFalse((self.tmp / "ws" / "dane" / "tokeny-archiwum.json").exists())
+        self.assertIn("zawęża zakres", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
+
+    def test_brief_innej_sesji_to_nie_wiadomosc_wlasciciela(self):
+        pola = {"cwd": str(self.repo), "sessionId": "x", "timestamp": ts(), "origin": {"kind": "human"}}
+        self.dopisz("f-repo", "sesja-repo.jsonl", [
+            {"type": "user", **pola, "message": {"content": "Background (from the session that started this one):\nzrób X"}},
+            {"type": "user", **pola, "message": {"content": "<system-reminder>x</system-reminder>"}},
+        ])
+        _, m = self.sygnaly()
+        self.assertEqual(m["wiad_wlasciciela"], 2)
+
+    def test_kierunek_trendu(self):
+        import tokeny
+        poniedzialki = [dt.date(2026, 6, 1) + dt.timedelta(weeks=i) for i in range(13)]
+        wiersze = [{"tydzien": p.isoformat(), "zrodlo": "lokalne", "wywolania_api": "10",
+                    "koszt_na_wiad": "1.0" if i < 8 else "2.0", "kontekst_mediana": "100000" if i < 8 else "70000",
+                    "wybudzenia_koszt_usd": "0.5"} for i, p in enumerate(poniedzialki)]
+        wiersze[-1]["koszt_na_wiad"] = "99"                         # tydzień bieżący, niezakończony: pomijany
+        wiersze.append({"tydzien": poniedzialki[3].isoformat(), "zrodlo": "lokalne", "wywolania_api": "0"})
+        wynik = {e: (k, n) for e, _, _, _, k, n in tokeny.trend(wiersze, dzis=poniedzialki[-1] + dt.timedelta(days=2))}
+        self.assertEqual(wynik["koszt na wiadomość (USD)"], ("↑ pogorszenie", 8))
+        self.assertEqual(wynik["mediana kontekstu sesji głównej"][0], "↓ poprawa")
+        self.assertEqual(wynik["koszt wybudzeń (USD)"][0], "≈")
+        self.assertEqual(wynik["kontekst startowy sesji"][0], "za mało danych")
+
+    def test_trend_zachowuje_wiersz_z_wieksza_liczba_wywolan(self):
+        import tokeny
+        plik = self.tmp / "t.csv"
+        plik.write_text("tydzien,wywolania_api,pokrycie\n2026-09-14,2618,\n", encoding="utf-8")   # bez kolumny zrodlo
+        wynik = tokeny.zapisz_trend(plik, [{"tydzien": "2026-09-14", "zrodlo": "lokalne", "wywolania_api": 5, "pokrycie": ""},
+                                           {"tydzien": "2026-09-21", "zrodlo": "lokalne", "wywolania_api": 7, "pokrycie": ""}])
+        self.assertEqual([(w["tydzien"], str(w["wywolania_api"])) for w in wynik], [("2026-09-14", "2618"), ("2026-09-21", "7")])
+        self.assertIn("z poprzedniego przebiegu", wynik[0]["pokrycie"])
+        self.assertEqual(wynik[0]["zrodlo"], "lokalne")
+
+
 class TestPrzypomnienie(Srodowisko):
     def hook(self, cwd, dzis=None):
         argumenty = ["--dzis", dzis] if dzis else []
