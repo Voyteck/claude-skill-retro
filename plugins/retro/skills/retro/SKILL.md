@@ -20,7 +20,8 @@ zaczyna się od rozliczenia tego, co ustalono wcześniej.
   Zawartość: `konfiguracja.json`, `retro/RNN-RRRR-MM-DD.md`, `zobowiazania.md` (rejestr), `metryki.csv`,
   `nauki.md` (tryb konta), `dane/` (wyciągi z transkrypcji, poza gitem).
 - Skrypty: `wspolne.py` (rozpoznanie stanu), `zaloz.py` (zakładanie katalogu), `sygnaly.py` (dowody z okna),
-  `dopisz_metryki.py` (wiersz `metryki.csv`), `przypomnienie.py` (hook przypomnienia). Pola konfiguracji:
+  `tokeny.py` (cennik, archiwum i trend tokenów; używa go `sygnaly.py`), `dopisz_metryki.py` (wiersz `metryki.csv`),
+  `przypomnienie.py` (hook przypomnienia). Pola konfiguracji:
   `references/konfiguracja.md`. Znaczenie metryk i ich ograniczenia: `references/sygnaly.md`; ceny do metryk
   kosztu: `references/cennik.json`.
 
@@ -91,6 +92,12 @@ Do trendu bierz `koszt_na_wiadomosc_usd`, `kontekst_mediana`, `kontekst_ponad_20
 sekcji „co nie działało”. Pracy w sandboksie i chmurze lokalne tokeny nie obejmują: gdy w repo są rekordy zużycia
 z tamtych środowisk (np. ze skillu `claude-usage-report`), weź z nich koszt na scalony PR.
 
+Przeczytaj też sekcję „Trend tokenów”: tydzień po tygodniu z `tokeny-tydzien.csv` (skrypt dopisuje do niego
+kolejne tygodnie i nadpisuje tydzień niepełny), ostatnie 4 tygodnie wobec mediany 8 wcześniejszych. Wskaźnik
+oznaczony **↑ pogorszenie** wpisz do sekcji „co nie działało” z liczbami z tabeli i poszukaj przyczyny w najdroższych
+sesjach okna; „za mało danych” nie jest sygnałem. Wiersze innych źródeł (np. `zrodlo=sandbox`, dopisywane
+osobno) mają własną tabelę; nie sumuj ich z lokalnymi.
+
 Podsumowanie zawiera uwagi o danych; uwzględnij je, zanim zacytujesz liczby: okno dłuższe niż retencja
 transkrypcji, checkout repo w tyle za zdalną gałęzią (reguły na dysku nieaktualne), projekty z pamięcią bez sesji
 w oknie, repo z commitami bez lokalnych sesji (sandbox, chmura: liczby na wiadomość i sesję tej pracy nie widzą),
@@ -152,7 +159,13 @@ Kolejność: rekomendacje i zmiany statusu, potem sprzątanie reguł, na końcu 
 - utrzymanie zobowiązania bez zmiany statusu: `Utrzymaj (rekomendowane)` / `Zmień: …` / `Porzuć`;
 - werdykt zmieniający status, nowa rekomendacja, usunięcie z reguł: `Przyjmij (rekomendowane)` / `Zmień: …` / `Odrzuć`;
 - pozycja „czeka na użytkownika”: `Zrobić teraz (w sesji projektu)` / `Zamknąć` / `Odłożyć do <data>`.
-  „Zrobić teraz” = zadanie dla sesji projektu z pełnym kontekstem (np. `spawn_task`, jeśli dostępne), nie praca retro.
+  „Zrobić teraz” = zadanie dla sesji projektu z pełnym kontekstem, nie praca retro. Gdy jest narzędzie do
+  zakładania sesji (np. `start_session`, `spawn_task`), od razu zaproponuj je kartą (propozycja, którą użytkownik
+  uruchamia jednym kliknięciem), nie czekaj na osobną zgodę na start: w turze wywołanej zdarzeniem
+  automatycznym (powiadomienie podagenta, wiadomość innej sesji) aplikacja pozwala tylko zaproponować kartę, a karta
+  nie wskazuje innego folderu. Dlatego brief zaczyna się od „Przejdź do `<pełna ścieżka projektu>` (narzędzie
+  zmiany katalogu albo ścieżki bezwzględne), zanim zaczniesz” i niesie cały potrzebny kontekst (dowody, pliki,
+  co znaczy „gotowe”). Bez takiego narzędzia zapisz brief w sekcji 10 retro do skopiowania.
   Gdy pozycji jest więcej niż 8 (zwykle retro zero), łącz w jedno pytanie pozycje tego samego projektu, które
   trafiłyby do jednego zadania; sprawy bezpieczeństwa (rotacje, klucze, hasła) zawsze pytaj osobno.
 
@@ -174,6 +187,7 @@ Zapisz odpowiedzi w sekcji 9 retro, własne odpowiedzi użytkownika dosłownie.
    (wiersz z najnowszego `metryki.json`; brakujące kolumny nowszej wersji pluginu dopisuje na końcu nagłówka).
 4. W retro: sekcja 10 (co, gdzie, commit lub PR), `**Status:** zakończone` (to resetuje licznik przypomnienia).
 5. Commit: tryb konta w katalogu roboczym; tryb projektu w repo (wg jego zasad), `retro(RNN): <najważniejsza zmiana>`.
+   Commit obejmuje też `tokeny-tydzien.csv` (trend); archiwum `dane/tokeny-archiwum.json` zostaje poza gitem.
 
 ## Krok 6. Zamknięcie
 

@@ -26,6 +26,9 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import wspolne  # noqa: E402
+import tokeny  # noqa: E402
+from tokeny import (PROG_DUZEGO_KONTEKSTU, PROG_WYBUDZENIA_H, PROG_WYBUDZENIA_TOKENY,  # noqa: E402,F401
+                    czas_lokalny, dodaj_wywolanie, koszt_wywolania, stawki, wczytaj_cennik, wywolanie_api)
 
 WZOR_KOREKTY = re.compile(
     r"(^|\W)(nie |dlaczego|czemu|znowu|ponownie|przecież|mówiłem|prosiłem|miałeś|miałaś|"
@@ -58,12 +61,10 @@ WZOR_DLUGI_CIAG = re.compile(r"(?<![A-Za-z0-9+=])[A-Za-z0-9+=]{32,}(?![A-Za-z0-9
 WZOR_HEX = re.compile(r"[0-9a-fA-F]+\Z")
 # Pytanie o fakt znany tylko użytkownikowi (np. „gdzie jestem?”) nie ma opcji rekomendowanej z natury.
 ZNACZNIK_FAKTU = "[fakt]"
-
-# Tokeny. Wybudzenie = wywołanie sesji głównej, które po przerwie zapisuje od nowa duży cache.
-PROG_WYBUDZENIA_TOKENY = 50_000
-PROG_WYBUDZENIA_H = 1
-PROG_DUZEGO_KONTEKSTU = 200_000
-PLIK_CENNIKA = pathlib.Path(__file__).resolve().parent.parent / "references" / "cennik.json"
+# Tekst w rekordzie „user”, który nie jest wiadomością właściciela (powiadomienia, briefy innych sesji).
+NIE_WLASCICIEL = ("<local-command", "<task-notification", "[Cross-session", "<cross-session-message",
+                  "<system-reminder", "Background (from the session")
+EPOKA = dt.datetime(2000, 1, 1).astimezone()
 # Commit lub PR „bez lokalnej sesji”: brak zapisu w transkrypcjach tego repo w tym odstępie.
 MARGINES_SESJI_MIN = 30
 
@@ -101,13 +102,6 @@ def zamaz(tekst: str):
     tekst = WZOR_DLUGI_CIAG.sub(dlugi, tekst)
     return tekst, licznik
 
-
-
-def czas_lokalny(ts: str):
-    try:
-        return dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
-    except (ValueError, AttributeError):
-        return None
 
 
 class Projekty:
@@ -212,80 +206,6 @@ def klasyfikuj_odpowiedz(odp, q) -> str:
     return "wlasna"
 
 
-# ---------------------------------------------------------------- cennik
-
-def wczytaj_cennik(konf: dict) -> dict:
-    """Cennik z references/cennik.json; pole `cennik` konfiguracji nadpisuje lub dodaje modele i stałe."""
-    try:
-        cennik = json.loads(PLIK_CENNIKA.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        cennik = {"modele": {}}
-    wlasny = konf.get("cennik") or {}
-    modele = dict(cennik.get("modele") or {})
-    modele.update(wlasny.get("modele") or {})
-    cennik.update({k: v for k, v in wlasny.items() if k != "modele"})
-    cennik["modele"] = modele
-    return cennik
-
-
-def stawki(model: str, cennik: dict):
-    """Stawki modelu po najdłuższym pasującym przedrostku identyfikatora albo None."""
-    model = (model or "").replace("[1m]", "")
-    pasujace = [k for k in cennik.get("modele", {}) if model.startswith(k)]
-    return cennik["modele"][max(pasujace, key=len)] if pasujace else None
-
-
-def koszt_wywolania(w: dict, cennik: dict, tylko_zapis=False):
-    """Koszt wywołania w USD (None, gdy modelu nie ma w cenniku); tylko_zapis = sama część zapisu cache."""
-    s = stawki(w["model"], cennik)
-    if s is None:
-        return None
-    mnoznik = 1.0
-    prog = s.get("powyzej") or {}
-    if prog and w["kontekst"] > prog.get("kontekst", float("inf")):
-        mnoznik = prog.get("mnoznik", 1)
-    if w["fast"]:
-        mnoznik *= cennik.get("mnoznik_fast", 1)
-    zapis = w["zapis_5m"] * s.get("zapis_5m", 0) + w["zapis_1h"] * s.get("zapis_1h", 0)
-    if tylko_zapis:
-        return zapis * mnoznik / 1e6
-    tokeny = w["wejscie"] * s.get("wejscie", 0) + w["wyjscie"] * s.get("wyjscie", 0) + zapis + w["odczyt"] * s.get("odczyt", 0)
-    return tokeny * mnoznik / 1e6 + w["web_search"] * cennik.get("web_search_za_zapytanie", 0)
-
-
-def wywolanie_api(d: dict, czas, podagent: bool):
-    """Rekord asystenta z `usage` i `message.id` → (id, wywołanie) albo None."""
-    wiad = d.get("message") or {}
-    u = wiad.get("usage")
-    if not isinstance(u, dict) or not wiad.get("id") or not wiad.get("model") or wiad["model"] == "<synthetic>":
-        return None
-    zapis = u.get("cache_creation_input_tokens") or 0
-    rozbicie = u.get("cache_creation") or {}
-    zapis_1h = rozbicie.get("ephemeral_1h_input_tokens") or 0
-    w = {"czas": czas, "podagent": podagent, "model": wiad["model"],
-         "wejscie": u.get("input_tokens") or 0, "wyjscie": u.get("output_tokens") or 0,
-         "zapis_5m": zapis - zapis_1h, "zapis_1h": zapis_1h, "odczyt": u.get("cache_read_input_tokens") or 0,
-         "fast": u.get("speed") == "fast", "web_search": (u.get("server_tool_use") or {}).get("web_search_requests") or 0}
-    w["kontekst"] = w["wejscie"] + zapis + w["odczyt"]
-    return wiad["id"], w
-
-
-def dodaj_wywolanie(wywolania: dict, wynik):
-    """Ten sam message.id jest zapisany raz na blok treści, z częściowym `usage` w trakcie strumienia:
-    zostaje rekord z największym `output_tokens` i najwcześniejszym czasem."""
-    if wynik is None:
-        return
-    mid, w = wynik
-    stary = wywolania.get(mid)
-    if stary is None:
-        wywolania[mid] = w
-    elif w["wyjscie"] >= stary["wyjscie"]:
-        w["czas"] = min(w["czas"], stary["czas"])
-        wywolania[mid] = w
-    else:
-        stary["czas"] = min(w["czas"], stary["czas"])
-
-
 # ---------------------------------------------------------------- transkrypcje
 
 class Sesja:
@@ -307,6 +227,7 @@ class Sesja:
         self.czasy = []            # czasy rekordów w oknie (sesja i podagenci): aktywność przy commitach
         self.wywolania = {}        # message.id -> wywołanie API (sesja i podagenci, także spoza okna)
         self.koszt = None          # koszt w oknie po deduplikacji (metryki_tokenow)
+        self.cost_state = 0        # największy `totalCostUSD` z rekordów cost-state (kontrola kosztu w trendzie)
         self.projekt = ("nieznany", None)
 
     def przypisz_projekt(self, projekty: Projekty):
@@ -353,6 +274,12 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
             typ = d.get("type")
             if typ == "custom-title":
                 s.tytul = d.get("customTitle") or s.tytul
+                continue
+            if typ == "cost-state":
+                try:
+                    s.cost_state = max(s.cost_state, float(d.get("totalCostUSD") or 0))
+                except (TypeError, ValueError):
+                    pass
                 continue
             if d.get("cwd"):
                 s.cwd[d["cwd"]] += 1
@@ -410,7 +337,8 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                 # Wiadomość wysłana w trakcie pracy Claude'a: wchłonięta w turę, bez własnego rekordu „user”.
                 zal = d.get("attachment") or {}
                 if (zal.get("type") == "queued_command" and (zal.get("origin") or {}).get("kind") == "human"
-                        and isinstance(zal.get("prompt"), str) and zal["prompt"].strip()):
+                        and isinstance(zal.get("prompt"), str) and zal["prompt"].strip()
+                        and not zal["prompt"].lstrip().startswith(NIE_WLASCICIEL)):
                     wiadomosc_wlasciciela(zal["prompt"], czas, w_trakcie=True)
                 continue
             if typ != "user":
@@ -465,7 +393,7 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                 s.licz["polecenia"] += 1
                 s.zdarzenia.append((czas, "polecenie", {"polecenie": m.group(1) if m else "?"}))
                 continue
-            if tekst.lstrip().startswith(("<local-command", "<task-notification", "[Cross-session")):
+            if tekst.lstrip().startswith(NIE_WLASCICIEL):
                 continue
             if pochodzenie in ("human", None) and tekst.strip():
                 wiadomosc_wlasciciela(tekst, czas)
@@ -847,6 +775,30 @@ def tys(n) -> str:
     return "—" if n is None else f"{n / 1000:.0f}k"
 
 
+def raport_trendu(wiersze, uwaga: str) -> list:
+    l = ["", "## Trend tokenów (tydzień po tygodniu)", ""]
+    if wiersze is None:
+        return l + [f"Trend {uwaga}."]
+    l += [f"Plik `{tokeny.PLIK_TRENDU}` w katalogu roboczym (commitowany; archiwum liczb: `{tokeny.PLIK_ARCHIWUM.as_posix()}`). "
+          f"Ostatnie {tokeny.OSTATNIE_TYGODNIE} zakończone tygodnie z aktywnością wobec mediany "
+          f"{tokeny.WCZESNIEJSZE_TYGODNIE} wcześniejszych; zmiana o więcej niż {tokeny.PROG_ZMIANY:.0%} to strzałka. "
+          "Dla każdego wskaźnika więcej = gorzej; **↑** oznacza pogorszenie."]
+    zrodla = sorted({w.get("zrodlo") or tokeny.ZRODLO for w in wiersze})
+    fmt = lambda v: "—" if v is None else (f"{v / 1000:.0f}k" if abs(v) >= 10000 else f"{v:g}")  # noqa: E731
+    for zrodlo in zrodla:
+        wyniki = tokeny.trend(wiersze, zrodlo)
+        l += ["", f"Źródło `{zrodlo}`:", "",
+              "| wskaźnik | mediana wcześniej (tyg.) | ostatnie tygodnie | mediana ostatnich | kierunek |", "|---|---|---|---|---|"]
+        for etykieta, m_wcz, ostatnie, m_ost, kierunek, n_wcz in wyniki:
+            kier = f"**{kierunek}**" if kierunek.startswith("↑") else kierunek
+            l.append(f"| {etykieta} | {fmt(m_wcz)} ({n_wcz}) | "
+                     + ", ".join(f"{t[5:]}: {fmt(v)}" for t, v in ostatnie) + f" | {fmt(m_ost)} | {kier} |")
+        gorsze = [e for e, *_, k, _ in wyniki if k.startswith("↑")]
+        if gorsze:
+            l += ["", f"**Pogarsza się ({zrodlo}):** " + ", ".join(gorsze) + "."]
+    return l
+
+
 def raport_tokenow(tok: dict, sesje: list) -> list:
     m = tok["metryki"]
     proc = lambda v: "—" if v is None else f"{v}%"  # noqa: E731
@@ -932,6 +884,8 @@ def main(argv=None):
     ap.add_argument("--wyjscie", help="katalog wyniku; domyślnie <katalog roboczy>/dane/sygnaly-<od>_<do>")
     ap.add_argument("--projekt", action="append", help="tylko te projekty (można powtórzyć)")
     ap.add_argument("--bez-gh", action="store_true", help="nie pytaj GitHuba (PR-y, CI)")
+    ap.add_argument("--bez-trendu", action="store_true",
+                    help=f"nie zapisuj archiwum tokenów ani {tokeny.PLIK_TRENDU} w katalogu roboczym")
     a = ap.parse_args(argv)
 
     if a.katalog:
@@ -978,7 +932,19 @@ def main(argv=None):
         return True
 
     sesje = [s for s in sesje if w_zakresie(s)]
-    tok = metryki_tokenow(sesje, od, do, wczytaj_cennik(konf))
+    cennik = wczytaj_cennik(konf)
+    tok = metryki_tokenow(sesje, od, do, cennik)
+
+    # Trend tygodniowy: cała historia (transkrypcje + archiwum), tylko dla pełnego zakresu (bez --projekt).
+    trend_wiersze, trend_uwaga = None, ""
+    if a.bez_trendu or katalog is None:
+        trend_uwaga = "pominięty (`--bez-trendu` albo brak katalogu roboczego)"
+    elif wybrane:
+        trend_uwaga = "pominięty, bo `--projekt` zawęża zakres (trend dotyczy całego zakresu retro)"
+    else:
+        historia, _ = wszystkie_sesje(EPOKA, dt.datetime.now().astimezone() + dt.timedelta(days=1), projekty, konf)
+        arch = tokeny.aktualizuj_archiwum(katalog / tokeny.PLIK_ARCHIWUM, [s for s in historia if w_zakresie(s)])
+        trend_wiersze = tokeny.zapisz_trend(katalog / tokeny.PLIK_TRENDU, tokeny.wiersze_tygodni(arch, cennik))
     per_projekt = collections.defaultdict(list)
     for s in sesje:
         per_projekt[s.projekt[0]].append(s)
@@ -1079,6 +1045,7 @@ def main(argv=None):
                  f"{c['blokady_klasyfikatora'] + c['blokady_u_podagentow']} | {c['bledy_narzedzi']} | {c['kompakty']} | {c['podagenci']} | ${koszt:.2f} |")
     l += ["", "## Pora wiadomości właściciela", ""] + [f"- {k}: {v}" for k, v in sorted(pory.items())]
     l += raport_tokenow(tok, sesje)
+    l += raport_trendu(trend_wiersze, trend_uwaga)
     l += ["", "## Repozytoria", "", "| repo | ścieżka | commity | bez lok. sesji | fix | revert | zmiany reguł | PR otw. | bez lok. sesji | PR scal. | mediana h do scalenia | mediana commitów/PR | CI porażki/wszystkie | za zdalną | gh |",
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for nazwa, r in repo.items():

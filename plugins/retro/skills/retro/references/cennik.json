@@ -4,6 +4,7 @@
   "stan_na": "2026-10-20",
   "mnoznik_fast": 2,
   "web_search_za_zapytanie": 0.01,
+  "rodziny_biezace": {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5"},
   "modele": {
     "claude-fable-5-1":  {"wejscie": 10,   "wyjscie": 50,   "zapis_5m": 12.5,  "zapis_1h": 20,   "odczyt": 0.25},
     "claude-mythos-5-1": {"wejscie": 10,   "wyjscie": 50,   "zapis_5m": 12.5,  "zapis_1h": 20,   "odczyt": 0.25},
