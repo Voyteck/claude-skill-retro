@@ -5,7 +5,8 @@ Co kilka dni roboczych (zalecane: co 2) retro:
 
 1. **rozlicza zobowiązania** z poprzednich retro: czy były przestrzegane i czy dały efekt;
 2. zbiera **dowody** z transkrypcji Claude Code, gita i GitHuba (wiadomości użytkownika, odpowiedzi na pytania,
-   blokady, błędy narzędzi, podagenci, PR-y, CI, rozmiar plików reguł);
+   blokady, błędy narzędzi, podagenci, PR-y, CI, rozmiar plików reguł, tokeny i koszt w cenach API: kontekst,
+   udział podagentów i Opusa, wybudzenia długich sesji);
 3. ocenia, **co działało, a co nie**, także po stronie użytkownika (opcjonalnie);
 4. proponuje **najwyżej 5 zmian**, preferując mechanizmy (testy, hooki, szablony) nad regułami w tekście;
 5. przyjęte zmiany **wdraża** do plików reguł (`CLAUDE.md`, pamięć, `nauki.md`) i rejestru zobowiązań.
@@ -66,9 +67,9 @@ Potem założy katalog roboczy i przeprowadzi **retro zero**: bilans dotychczaso
 plugins/retro/.claude-plugin/plugin.json manifest pluginu (wersja)
 plugins/retro/hooks/hooks.json           przypomnienie przy starcie sesji
 plugins/retro/skills/retro/SKILL.md      procedura retro (instrukcje dla Claude'a)
-plugins/retro/skills/retro/scripts/      sygnaly.py, zaloz.py, przypomnienie.py, wspolne.py
+plugins/retro/skills/retro/scripts/      sygnaly.py, dopisz_metryki.py, zaloz.py, przypomnienie.py, wspolne.py
 plugins/retro/skills/retro/assets/       szablony: retro, rejestr, metryki, nauki, README katalogu
-plugins/retro/skills/retro/references/   konfiguracja.md, sygnaly.md (znaczenie metryk)
+plugins/retro/skills/retro/references/   konfiguracja.md, sygnaly.md (znaczenie metryk), cennik.json
 testy/test_retro.py                      testy na sztucznych transkrypcjach
 ```
 
@@ -92,7 +93,9 @@ claude plugin validate plugins/retro --strict
 
 ## Ograniczenia
 
-- Widzi tylko sesje lokalne; sesje w chmurze (claude.ai/code) i na innych komputerach nie trafiają do retro.
+- Widzi tylko sesje lokalne; sesje w chmurze (claude.ai/code) i na innych komputerach nie trafiają do retro, chyba że
+  ich transkrypcje skopiujesz i wskażesz w `transkrypcje_dodatkowe`. Koszt to ceny API jako miara względna
+  (na subskrypcji ogranicza limit, nie kwota), liczony tylko z lokalnych transkrypcji.
 - Claude Code usuwa transkrypcje z terminala i VS Code po `cleanupPeriodDays` (domyślnie 30 dni). Wyciągi
   w `dane/` zostają; kto chce dłuższej historii, podnosi tę wartość w `~/.claude/settings.json`.
 - Wyciągi z transkrypcji (`dane/`) są poza gitem, a ciągi wyglądające na sekrety są w nich zamazywane. To
