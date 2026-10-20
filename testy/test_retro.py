@@ -305,6 +305,197 @@ class TestSygnalyUzupelnienia(Srodowisko):
         self.assertIn("starsze niż 10 dni (`cleanupPeriodDays`)", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
 
 
+def wywolanie(mid, delta, model="claude-opus-5-5", wej=0, wyj=0, z5=0, z1h=0, odcz=0, cwd="", **inne):
+    """Rekord asystenta z `usage` jak w transkrypcji Claude Code."""
+    return {"type": "assistant", "timestamp": ts(delta), "cwd": cwd, "sessionId": "x", **inne, "message": {
+        "id": mid, "model": model, "content": [{"type": "text", "text": "ok"}],
+        "usage": {"input_tokens": wej, "output_tokens": wyj, "cache_read_input_tokens": odcz,
+                  "cache_creation_input_tokens": z5 + z1h,
+                  "cache_creation": {"ephemeral_5m_input_tokens": z5, "ephemeral_1h_input_tokens": z1h}}}}
+
+
+class Test013(Srodowisko):
+    """Zmiany 0.1.3: okno od commita retro, [fakt], tokeny, praca bez lokalnych sesji, reguły osobno, CSV."""
+
+    dopisz = TestSygnalyUzupelnienia.dopisz
+    sygnaly = TestSygnalyUzupelnienia.sygnaly
+
+    def git(self, katalog, *argumenty, data=None):
+        env = dict(os.environ)
+        if data:
+            env.update(GIT_AUTHOR_DATE=data, GIT_COMMITTER_DATE=data)
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-C", str(katalog), *argumenty],
+                       check=True, env=env, capture_output=True)
+
+    def konfiguruj(self, **pola):
+        plik = self.tmp / "ws" / "konfiguracja.json"
+        konf = json.loads(plik.read_text(encoding="utf-8"))
+        konf.update(pola)
+        plik.write_text(json.dumps(konf), encoding="utf-8")
+
+    def sygnaly_od(self, od, *dodatkowe):
+        wyjscie = self.tmp / "wyn"
+        self.uruchom("sygnaly.py", "--od", od, "--bez-gh", "--wyjscie", str(wyjscie), *dodatkowe)
+        return wyjscie, json.loads((wyjscie / "metryki.json").read_text(encoding="utf-8"))
+
+    def test_okno_od_commita_poprzedniego_retro(self):
+        self.zaloz_konto()
+        commit = dt.datetime.now().astimezone() - dt.timedelta(minutes=30)
+        ws = self.tmp / "ws"
+        (ws / "retro" / f"R00-{commit:%Y-%m-%d}.md").write_text("# R00\n\n**Status:** zakończone\n", encoding="utf-8")
+        self.git(ws, "add", "retro")
+        self.git(ws, "commit", "-q", "-m", "retro(R00)", data=commit.isoformat(timespec="seconds"))
+        pola = {"cwd": str(self.repo), "sessionId": "x", "origin": {"kind": "human"}}
+        self.dopisz("f-repo", "sesja-repo.jsonl", [
+            {"type": "user", "timestamp": ts(dt.timedelta(minutes=-60)), **pola, "message": {"content": "przed commitem retro"}}])
+        wyjscie, m = self.sygnaly_od(f"{commit:%Y-%m-%d}")
+        self.assertEqual(m["wiad_wlasciciela"], 2)                  # wiadomość sprzed commita retro pominięta
+        self.assertEqual(m["okno_od_godzina"], f"{commit:%H:%M}")
+        self.assertEqual(m["commity"], 1)                           # commit z setUp jest po commicie retro
+        self.assertIn("od commita, który zakończył R00", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
+        _, m = self.sygnaly_od(f"{commit:%Y-%m-%d}", "--od-poczatku-dnia")
+        self.assertEqual(m["okno_od_godzina"], "00:00")
+        _, m = self.sygnaly_od(f"{commit - dt.timedelta(minutes=45):%Y-%m-%dT%H:%M}")
+        self.assertEqual(m["wiad_wlasciciela"], 3)                  # godzina podana wprost
+
+    def test_pytanie_o_fakt(self):
+        pola = {"cwd": str(self.repo), "sessionId": "x"}
+        q = [{"question": "W jakiej sieci jesteś? [fakt]", "header": "f", "multiSelect": False,
+              "options": [{"label": "Dom", "description": ""}, {"label": "Praca", "description": ""}]},
+             {"question": "Bez rekomendacji?", "header": "g", "multiSelect": False,
+              "options": [{"label": "A", "description": ""}, {"label": "B", "description": ""}]}]
+        self.dopisz("f-repo", "sesja-repo.jsonl", [
+            {"type": "assistant", "timestamp": ts(), **pola, "message": {"model": "m", "content": [
+                {"type": "tool_use", "id": "f1", "name": "AskUserQuestion", "input": {"questions": q}}]}},
+            {"type": "user", "timestamp": ts(), **pola, "message": {"content": [{"type": "tool_result", "tool_use_id": "f1",
+             "content": 'The user answered: "W jakiej sieci jesteś? [fakt]"="hotspot z telefonu", "Bez rekomendacji?"="A". '
+                        "Read the answers carefully."}]}},
+        ])
+        wyjscie, m = self.sygnaly()
+        self.assertEqual(m["pyt_fakt"], 1)
+        self.assertEqual(m["pyt_bez_rekomendacji"], 1)
+        self.assertEqual(m["pyt_wlasna"], 2)                       # tylko z transkrypcji bazowych
+        self.assertIn("**fakt:** hotspot z telefonu", (wyjscie / "repo.md").read_text(encoding="utf-8"))
+
+    def test_tokeny_i_koszt(self):
+        self.zaloz_konto()
+        cwd = str(self.inny)
+        h = lambda godz, minuty=0: dt.timedelta(hours=-godz, minutes=-minuty)  # noqa: E731
+        czlowiek = lambda delta, tekst: {"type": "user", "timestamp": ts(delta), "cwd": cwd, "sessionId": "x",  # noqa: E731
+                                         "origin": {"kind": "human"}, "message": {"content": tekst}}
+        self.dopisz("f-tok", "sesja-tok.jsonl", [
+            czlowiek(h(3, 1), "start"),
+            wywolanie("m1", h(3), wej=10, wyj=1, z1h=40000, cwd=cwd),            # częściowy usage w trakcie strumienia
+            wywolanie("m1", h(3), wej=10, wyj=100, z1h=40000, cwd=cwd),          # pełny: $0.32204
+            wywolanie("m2", h(2, 59), wyj=200, z5=5000, odcz=40000, cwd=cwd),    # $0.037
+            czlowiek(h(1, 1), "wracam"),
+            wywolanie("m3", h(1), z1h=250000, cwd=cwd),                          # wybudzenie po ~2 h: $2.00
+            wywolanie("syn", h(1), model="<synthetic>", wyj=999, cwd=cwd),       # pomijane
+        ])
+        self.dopisz("f-tok", "fork.jsonl", [
+            wywolanie("m1", h(3), wej=10, wyj=100, z1h=40000, cwd=cwd),          # kopia: liczona raz
+            wywolanie("m4", h(0, 30), odcz=100000, cwd=cwd),                     # $0.02
+        ])
+        pod = self.claude / "projects" / "f-tok" / "sesja-tok" / "subagents"
+        pod.mkdir(parents=True)
+        (pod / "agent-a1.meta.json").write_text(json.dumps({"agentType": "Explore"}), encoding="utf-8")
+        (pod / "agent-a1.jsonl").write_text("\n".join(json.dumps(r) for r in [
+            wywolanie("s1", h(2, 50), model="claude-haiku-4-5-20251001", wej=1000, wyj=1000, cwd=cwd),  # $0.006
+            wywolanie("s2", h(2, 49), wyj=1000, cwd=cwd),                                               # $0.02
+        ]) + "\n", encoding="utf-8")
+        wyjscie, m = self.sygnaly_od((dt.date.today() - dt.timedelta(days=1)).isoformat())
+        self.assertEqual(m["wywolania_api"], 6)
+        self.assertEqual(m["koszt_api_usd"], 2.41)                   # 2.40504
+        self.assertEqual(m["wiad_wlasciciela"], 4)
+        self.assertEqual(m["koszt_na_wiadomosc_usd"], 0.6)
+        self.assertEqual(m["kontekst_mediana"], 72500)               # 40010, 45000, 100000, 250000
+        self.assertEqual(m["kontekst_ponad_200k_proc"], 25.0)
+        self.assertEqual(m["podagenci_koszt_proc"], 1.1)             # 0.026 / 2.40504
+        self.assertEqual(m["podagenci_opus_koszt_proc"], 76.9)       # 0.02 / 0.026
+        self.assertEqual(m["wybudzenia"], 1)
+        self.assertEqual(m["wybudzenia_koszt_usd"], 2.0)
+        self.assertEqual(m["kontekst_startowy_mediana"], 40010)      # fork (z kopią) się nie liczy
+        podsumowanie = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("## Tokeny i koszt", podsumowanie)
+        self.assertIn("`sesja-to` po 2.0 h: zapis 250k, $2.00", podsumowanie)
+        self.assertIn("$2.39 |", (wyjscie / "inny.md").read_text(encoding="utf-8"))   # koszt sesji z podagentami
+
+    def test_cennik_z_konfiguracji_i_nieznany_model(self):
+        self.zaloz_konto()
+        cwd = str(self.inny)
+        self.dopisz("f-tok", "s.jsonl", [wywolanie("n1", dt.timedelta(minutes=-2), model="claude-nowy-9", wyj=1_000_000, cwd=cwd),
+                                         wywolanie("n2", dt.timedelta(minutes=-1), model="claude-inny-1", wyj=10, cwd=cwd)])
+        self.konfiguruj(cennik={"modele": {"claude-nowy": {"wejscie": 1, "wyjscie": 3, "zapis_5m": 1, "zapis_1h": 2, "odczyt": 0.1}}})
+        wyjscie, m = self.sygnaly_od(dt.date.today().isoformat())
+        self.assertEqual(m["koszt_api_usd"], 3.0)
+        self.assertIn("`claude-inny-1` (1 wywołań)", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
+
+    def test_commity_bez_lokalnych_sesji(self):
+        self.zaloz_konto()
+        obcy = self.tmp / "obcy"
+        subprocess.run(["git", "init", "-q", str(obcy)], check=True)
+        for i in range(3):
+            (obcy / f"p{i}.txt").write_text(str(i), encoding="utf-8")
+            self.git(obcy, "add", "-A")
+            self.git(obcy, "commit", "-q", "-m", f"feat: {i}")
+        self.konfiguruj(repozytoria_dodatkowe={"obcy": str(obcy)})
+        wyjscie, m = self.sygnaly_od(dt.date.today().isoformat())
+        self.assertEqual(m["commity"], 4)
+        self.assertEqual(m["commity_bez_sesji"], 3)                  # commit w repo z sesją jest „lokalny”
+        self.assertIn("obcy: 3 z 3 commitów", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
+
+    def test_reguly_osobno(self):
+        for nazwa in ("a", "b", "c"):
+            (self.repo / "repo-roots" / nazwa).mkdir(parents=True)
+            (self.repo / "repo-roots" / nazwa / "CLAUDE.md").write_text("1\n2\n3\n", encoding="utf-8")
+        self.git(self.repo, "add", "-A")
+        self.git(self.repo, "commit", "-q", "-m", "docs: kopie reguł")
+        wyjscie, m = self.sygnaly()
+        self.assertEqual(m["claude_md_linie"], 2 + 9)
+        self.assertIn("`repo-roots/`: 3 plików, 9 linii", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
+        self.konfiguruj(katalogi_regul_osobno=["repo-roots"])
+        wyjscie, m = self.sygnaly_od(dt.date.today().isoformat())
+        self.assertEqual((m["claude_md_linie"], m["claude_md_linie_osobno"]), (2, 9))
+        self.assertNotIn("dopisz katalog do `katalogi_regul_osobno`", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
+
+    def test_transkrypcje_dodatkowe(self):
+        self.zaloz_konto()
+        inna = self.tmp / "laptop" / "projects" / "f-laptop"
+        inna.mkdir(parents=True)
+        (inna / "zdalna.jsonl").write_text("\n".join(json.dumps(r) for r in transkrypcja(str(self.inny), "z laptopa")) + "\n",
+                                           encoding="utf-8")
+        self.konfiguruj(transkrypcje_dodatkowe=[str(self.tmp / "laptop")])
+        _, m = self.sygnaly_od(dt.date.today().isoformat())
+        self.assertEqual(m["sesje"], 3)
+
+    def test_naglowek_csv_zgodny_z_metrykami(self):
+        _, m = self.sygnaly()
+        naglowek = (SKRYPTY.parent / "assets" / "metryki-naglowek.csv").read_text(encoding="utf-8").split()[0].split(",")
+        self.assertEqual(set(naglowek) - {"retro", "data", "zobowiazania_aktywne"}, set(m))
+        stare = naglowek[:naglowek.index("zobowiazania_aktywne") + 1]
+        self.assertEqual(len(stare), 33)                            # kolumny 0.1.2 bez zmian, nowe na końcu
+
+    def test_dopisz_metryki_rozszerza_stary_naglowek(self):
+        _, m = self.sygnaly()
+        ws = self.tmp / "ws"
+        stary = "retro,data,okno_od,sesje,zobowiazania_aktywne\nR00,2026-10-01,2026-09-30,3,4\n"
+        (ws / "metryki.csv").write_text(stary, encoding="utf-8")
+        wynik = json.loads(self.uruchom("dopisz_metryki.py", "--retro", "R01", "--zobowiazania", "5",
+                                        "--katalog", str(ws), "--metryki", str(self.tmp / "wyn" / "metryki.json")))
+        self.assertIn("koszt_api_usd", wynik["dopisane_kolumny"])
+        self.assertEqual(wynik["wiersz"], "dopisany")
+        self.uruchom("dopisz_metryki.py", "--retro", "R01", "--zobowiazania", "6", "--katalog", str(ws),
+                     "--metryki", str(self.tmp / "wyn" / "metryki.json"))
+        import csv
+        with (ws / "metryki.csv").open(encoding="utf-8", newline="") as f:
+            wiersze = list(csv.DictReader(f))
+        self.assertEqual([w["retro"] for w in wiersze], ["R00", "R01"])  # ponowne uruchomienie zastępuje wiersz
+        self.assertEqual(wiersze[0]["sesje"], "3")
+        self.assertEqual(wiersze[0]["koszt_api_usd"], "")
+        self.assertEqual(wiersze[1]["zobowiazania_aktywne"], "6")
+        self.assertEqual(wiersze[1]["sesje"], str(m["sesje"]))
+
+
 class TestPrzypomnienie(Srodowisko):
     def hook(self, cwd, dzis=None):
         argumenty = ["--dzis", dzis] if dzis else []

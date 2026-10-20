@@ -20,8 +20,9 @@ zaczyna się od rozliczenia tego, co ustalono wcześniej.
   Zawartość: `konfiguracja.json`, `retro/RNN-RRRR-MM-DD.md`, `zobowiazania.md` (rejestr), `metryki.csv`,
   `nauki.md` (tryb konta), `dane/` (wyciągi z transkrypcji, poza gitem).
 - Skrypty: `wspolne.py` (rozpoznanie stanu), `zaloz.py` (zakładanie katalogu), `sygnaly.py` (dowody z okna),
-  `przypomnienie.py` (hook przypomnienia). Pola konfiguracji: `references/konfiguracja.md`. Znaczenie metryk
-  i ich ograniczenia: `references/sygnaly.md`.
+  `dopisz_metryki.py` (wiersz `metryki.csv`), `przypomnienie.py` (hook przypomnienia). Pola konfiguracji:
+  `references/konfiguracja.md`. Znaczenie metryk i ich ograniczenia: `references/sygnaly.md`; ceny do metryk
+  kosztu: `references/cennik.json`.
 
 ## Zasady stałe
 
@@ -63,9 +64,9 @@ zaczyna się od rozliczenia tego, co ustalono wcześniej.
    inaczej używaj ścieżek bezwzględnych). Tryb projektu: sesja w repo projektu.
 4. Numer `N` = `nastepny_numer`. Plik `retro/RNN-RRRR-MM-DD.md` z `assets/szablon-retro.md`,
    `**Status:** szkic`. Jeśli istnieje niezakończony szkic, zapytaj: dokończyć go czy zastąpić.
-5. Okno: od dnia ostatniego **zakończonego** retro (włącznie) do dziś. Zdarzenia sprzed commita tamtego retro
-   z tego samego dnia nie liczą się do rozliczenia. Argumenty skillu („tylko projekt X”, „od 2026-10-06”)
-   zawężają okno lub zakres.
+5. Okno: od dnia ostatniego **zakończonego** retro (włącznie) do dziś. `sygnaly.py` sam zaczyna je od godziny
+   commita, który zakończył tamto retro, więc zdarzenia sprzed niego nie liczą się do rozliczenia. Argumenty
+   skillu („tylko projekt X”, „od 2026-10-06”) zawężają okno lub zakres.
 
 **Retro zero** (brak zakończonych retro, pusty rejestr): okno od najstarszej transkrypcji. Zamiast rozliczenia
 rejestru zrób bilans dotychczasowych nauk: wpisy `feedback` w pamięci projektów
@@ -81,12 +82,20 @@ python "${CLAUDE_SKILL_DIR}/scripts/sygnaly.py" --od RRRR-MM-DD
 
 Wynik w `<katalog roboczy>/dane/sygnaly-<od>_<do>/`: `podsumowanie.md`, `metryki.json`, `<projekt>.md` (oś
 czasu). Przeczytaj podsumowanie i metryki, porównaj z `metryki.csv`. Klasy odpowiedzi na pytania i ograniczenia
-liczb: `references/sygnaly.md`. „[K?]” to heurystyka, nie dowód. Gdy w repo są rekordy zużycia tokenów
-(np. ze skillu `claude-usage-report`), weź z nich koszt na scalony PR; samego pomiaru w ramach retro nie rób.
+liczb: `references/sygnaly.md`. „[K?]” to heurystyka, nie dowód.
+
+Tokeny i koszt lokalnych sesji liczy skrypt (sekcja „Tokeny i koszt” podsumowania: koszt w cenach API jako miara
+względna, koszt na wiadomość, kontekst, podagenci, wybudzenia, kontekst startowy); ręcznej analizy tokenów nie rób.
+Do trendu bierz `koszt_na_wiadomosc_usd`, `kontekst_mediana`, `kontekst_ponad_200k_proc`, `podagenci_opus_koszt_proc`,
+`wybudzenia` i `kontekst_startowy_mediana`; najdroższe sesje i wybudzenia z listy w podsumowaniu to dowody do
+sekcji „co nie działało”. Pracy w sandboksie i chmurze lokalne tokeny nie obejmują: gdy w repo są rekordy zużycia
+z tamtych środowisk (np. ze skillu `claude-usage-report`), weź z nich koszt na scalony PR.
 
 Podsumowanie zawiera uwagi o danych; uwzględnij je, zanim zacytujesz liczby: okno dłuższe niż retencja
 transkrypcji, checkout repo w tyle za zdalną gałęzią (reguły na dysku nieaktualne), projekty z pamięcią bez sesji
-w oknie. Sekrety w osiach czasu są zamazywane (`[zamazane]`), ale to heurystyka: gdy mimo to zobaczysz klucz albo
+w oknie, repo z commitami bez lokalnych sesji (sandbox, chmura: liczby na wiadomość i sesję tej pracy nie widzą),
+katalogi z kopiami `CLAUDE.md` (kandydaci do `katalogi_regul_osobno`; dopisanie to decyzja użytkownika), modele
+bez ceny w cenniku. Sekrety w osiach czasu są zamazywane (`[zamazane]`), ale to heurystyka: gdy mimo to zobaczysz klucz albo
 hasło, nie przepisuj go do pliku retro ani do zadań dla podagentów, tylko zgłoś w sekcji 8a jako sprawę do rotacji.
 
 ## Krok 2. Analiza
@@ -120,6 +129,11 @@ Wypełnij plik retro wg szablonu. Rozliczenie zobowiązań:
   śledzić (sprawdzenie wyrywkowe raz na 5 retro);
 - **porzucić** = brak efektu albo koszt większy niż zysk → usuń też z plików reguł;
 - **zmienić** = idea dobra, forma nie działa → nowe zobowiązanie zastępuje stare.
+
+Zanim uznasz coś za martwe albo zaproponujesz „porzucić” (regułę, katalog, skrypt, hook, stronę), zapytaj
+użytkownika, czy ktoś tego używa: brak śladu w transkrypcjach nie znaczy, że nikt tego nie używa (praca w chmurze,
+inni ludzie, rzadkie użycie; przykład z R01: katalog `site/`). Pytaj w kroku 4 razem z werdyktem albo
+wcześniej, gdy od odpowiedzi zależy analiza.
 
 **Czeka na użytkownika** (sekcja 8a szablonu). Zbierz z dowodem i datą „od”:
 - pytania odłożone w oknie (klasa „odłożone” w osiach czasu), które nie wróciły;
@@ -156,7 +170,8 @@ Zapisz odpowiedzi w sekcji 9 retro, własne odpowiedzi użytkownika dosłownie.
      `retro/rNN-<temat>` w osobnym worktree i PR);
    - pamięć projektu (`~/.claude/projects/*/memory/`) → wpis `feedback` z odnośnikiem `Z-NNN`, bez powielania
      treści z `nauki.md`.
-3. `metryki.csv`: wiersz z `metryki.json` (kolumny jak w nagłówku) plus liczba aktywnych zobowiązań.
+3. `metryki.csv`: `python "${CLAUDE_SKILL_DIR}/scripts/dopisz_metryki.py" --retro RNN --zobowiazania <aktywne>`
+   (wiersz z najnowszego `metryki.json`; brakujące kolumny nowszej wersji pluginu dopisuje na końcu nagłówka).
 4. W retro: sekcja 10 (co, gdzie, commit lub PR), `**Status:** zakończone` (to resetuje licznik przypomnienia).
 5. Commit: tryb konta w katalogu roboczym; tryb projektu w repo (wg jego zasad), `retro(RNN): <najważniejsza zmiana>`.
 

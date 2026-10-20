@@ -17,6 +17,9 @@ domyślne z `scripts/wspolne.py` (`DOMYSLNA_KONFIGURACJA`). Zmieniaj ręcznie al
 | `pomin_projekty` | `[]` | nazwy projektów wyłączonych z retro |
 | `repozytoria_dodatkowe` | `{}` | `{"nazwa": "ścieżka"}`: repo liczone w git/GitHub, nawet bez sesji w oknie |
 | `pliki_regul_dodatkowe` | `[]` | dodatkowe pliki reguł do statystyki (np. `docs/claude/*.md`) |
+| `katalogi_regul_osobno` | `[]` | katalogi względem korzenia repo (np. `["repo-roots/"]`), których `CLAUDE.md` to kopie dla innych repozytoriów: liczone osobno (`claude_md_linie_osobno`), nie w `claude_md_linie`. Podsumowanie podpowiada kandydatów (katalog z ≥ 3 zagnieżdżonymi `CLAUDE.md`) |
+| `transkrypcje_dodatkowe` | `[]` | katalogi z transkrypcjami z innych maszyn (katalog `projects` albo katalog, który go zawiera) |
+| `cennik` | `{}` | nadpisania `references/cennik.json`, ten sam kształt: `{"modele": {"claude-x": {"wejscie": 1, "wyjscie": 5, "zapis_5m": 1.25, "zapis_1h": 2, "odczyt": 0.1}}}`, także `mnoznik_fast` i `web_search_za_zapytanie` |
 | `rejestry_pytan` | `[]` | pliki z otwartymi pytaniami do ludzi spoza zespołu (sekcja 8a) |
 | `gh` | `null` | ścieżka do `gh`, gdy nie ma go w PATH |
 
