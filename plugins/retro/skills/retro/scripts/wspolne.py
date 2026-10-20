@@ -38,6 +38,7 @@ DOMYSLNA_KONFIGURACJA = {
     "katalogi_regul_osobno": [],           # ["repo-roots/"] — kopie CLAUDE.md dla innych repo, poza claude_md_linie
     "transkrypcje_dodatkowe": [],          # katalogi `projects` skopiowane z innych maszyn
     "cennik": {},                          # nadpisania references/cennik.json: {"modele": {"claude-x": {...}}}
+    "zrodla_zdalne": [],                   # [{"nazwa": "sandbox", "polecenie": [...] | "plik": "..."}] — trend tokenów
     "rejestry_pytan": [],                  # pliki z otwartymi pytaniami do ludzi spoza zespołu
     "gh": None,                            # ścieżka do gh, gdy nie ma go w PATH
 }

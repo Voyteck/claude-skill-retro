@@ -20,7 +20,8 @@ zaczyna się od rozliczenia tego, co ustalono wcześniej.
   Zawartość: `konfiguracja.json`, `retro/RNN-RRRR-MM-DD.md`, `zobowiazania.md` (rejestr), `metryki.csv`,
   `nauki.md` (tryb konta), `dane/` (wyciągi z transkrypcji, poza gitem).
 - Skrypty: `wspolne.py` (rozpoznanie stanu), `zaloz.py` (zakładanie katalogu), `sygnaly.py` (dowody z okna),
-  `tokeny.py` (cennik, archiwum i trend tokenów; używa go `sygnaly.py`), `dopisz_metryki.py` (wiersz `metryki.csv`),
+  `tokeny.py` (cennik, archiwum i trend tokenów; używa go `sygnaly.py`), `zbierz_liczby.py` (liczby z transkrypcji
+  innej maszyny dla trendu), `dopisz_metryki.py` (wiersz `metryki.csv`),
   `przypomnienie.py` (hook przypomnienia). Pola konfiguracji:
   `references/konfiguracja.md`. Znaczenie metryk i ich ograniczenia: `references/sygnaly.md`; ceny do metryk
   kosztu: `references/cennik.json`.
@@ -95,8 +96,11 @@ z tamtych środowisk (np. ze skillu `claude-usage-report`), weź z nich koszt na
 Przeczytaj też sekcję „Trend tokenów”: tydzień po tygodniu z `tokeny-tydzien.csv` (skrypt dopisuje do niego
 kolejne tygodnie i nadpisuje tydzień niepełny), ostatnie 4 tygodnie wobec mediany 8 wcześniejszych. Wskaźnik
 oznaczony **↑ pogorszenie** wpisz do sekcji „co nie działało” z liczbami z tabeli i poszukaj przyczyny w najdroższych
-sesjach okna; „za mało danych” nie jest sygnałem. Wiersze innych źródeł (np. `zrodlo=sandbox`, dopisywane
-osobno) mają własną tabelę; nie sumuj ich z lokalnymi.
+sesjach okna; „za mało danych” nie jest sygnałem. Wiersze innych źródeł (np. `zrodlo=sandbox`) mają własną
+tabelę; nie sumuj ich z lokalnymi. Źródło zdalne z konfiguracji (`zrodla_zdalne`) skrypt odczytuje raz; gdy
+podsumowanie pokazuje „brak odczytu”, nie ponawiaj połączenia ani nie sonduj maszyny. Podaj użytkownikowi gotowe
+polecenie do uruchomienia u siebie (`references/sygnaly.md`, „Źródła zdalne”: wynik do pliku i pole `plik`) i
+licz trend z tego, co jest w archiwum.
 
 Podsumowanie zawiera uwagi o danych; uwzględnij je, zanim zacytujesz liczby: okno dłuższe niż retencja
 transkrypcji, checkout repo w tyle za zdalną gałęzią (reguły na dysku nieaktualne), projekty z pamięcią bez sesji

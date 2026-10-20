@@ -1,5 +1,28 @@
 # Zmiany
 
+## 0.1.5 · 2026-10-20
+
+- **Źródła zdalne trendu tokenów** (`zrodla_zdalne`, domyślnie brak): druga maszyna z Claude Code, np. sandbox.
+  Dane można wziąć na dwa sposoby:
+  - `polecenie` (np. `ssh -T host python3 -`, także z `docker exec` w środku): skrypt podaje na stdin nowy
+    samodzielny `scripts/zbierz_liczby.py`, który wypisuje same liczby z transkrypcji tamtej maszyny, bez treści
+    rozmów, i niczego tam nie zapisuje;
+  - `plik`: ten sam wynik zapisany wcześniej przez właściciela.
+
+  Na każde źródło przypada jedna próba, bez ponawiania; gdy się nie uda, podsumowanie podaje przyczynę, a skrypt
+  liczy dalej. Każde źródło ma osobne archiwum `dane/tokeny-archiwum-<nazwa>.json` i wiersze `zrodlo=<nazwa>`
+  w `tokeny-tydzien.csv`. Format jest zgodny z ręcznym odczytem sandboksa z 10-20 (`sandbox-liczby.json`,
+  `tokeny-archiwum-sandbox.json`). `--bez-zdalnych` pomija źródła zdalne w danym przebiegu.
+- **Poprawka 0.1.4:** zapis trendu sklejał wiersze innych źródeł, które miały ten sam tydzień (np. dwa okna
+  `sandbox-pomiar` z 09-26), i czyścił kolumny, których skrypt nie liczy (`*_sygnaly`, `pokrycie_wiad_proc`), oraz
+  ręczne uwagi w `pokrycie`. Teraz wiersze obcych źródeł zostają dosłownie, a w wierszach skryptu zostają nieznane
+  kolumny i cudze uwagi.
+- Źródło z kilkoma wierszami na tydzień (pomiary okienne) nie dostaje tabeli trendu.
+- Wiadomości właściciela nie obejmują promptów `claude -p` (entrypoint `sdk-cli`).
+- `SKILL.md`, krok 1: gdy źródła zdalnego nie da się odczytać, Claude nie ponawia połączenia, tylko podaje
+  użytkownikowi polecenie do uruchomienia u siebie.
+- Testy: 40 (było 35).
+
 ## 0.1.4 · 2026-10-20
 
 Decyzje właściciela z R03 (sekcja 10), po wydaniu 0.1.3.

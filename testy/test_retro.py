@@ -585,6 +585,101 @@ class Test014(Srodowisko):
         self.assertEqual(wynik[0]["zrodlo"], "lokalne")
 
 
+class Test015(Srodowisko):
+    """Zmiany 0.1.5: źródła zdalne trendu (polecenie, plik), obce wiersze trendu, `claude -p`."""
+
+    dopisz = TestSygnalyUzupelnienia.dopisz
+    sygnaly = TestSygnalyUzupelnienia.sygnaly
+    trend_csv = Test014.trend_csv
+
+    def zdalne_transkrypcje(self):
+        """Katalog `projects` „innej maszyny”: sesja z wiadomością, briefem, zrzutem ekranu, `claude -p` i podagentem."""
+        projekty = self.tmp / "zdalna" / "projects"
+        folder = projekty / "-workspace"
+        folder.mkdir(parents=True)
+        cwd = "/workspace"
+        czlowiek = lambda tresc, minuty, **inne: {  # noqa: E731
+            "type": "user", "timestamp": ts(dt.timedelta(minutes=-minuty)), "cwd": cwd, "sessionId": "z",
+            "origin": {"kind": "human"}, "message": {"content": tresc}, **inne}
+        rekordy = [czlowiek("zrób to", 6), czlowiek("Background (from the session that started this one): x", 5),
+                   czlowiek([{"type": "image", "source": {}}], 4), czlowiek("test hooka", 3, entrypoint="sdk-cli"),
+                   wywolanie("z1", dt.timedelta(minutes=-2), wyj=1000, cwd=cwd),
+                   wywolanie("z1", dt.timedelta(minutes=-2), wyj=10, cwd=cwd),
+                   {"type": "cost-state", "totalCostUSD": 0.5}]
+        (folder / "sesja-zdalna.jsonl").write_text("\n".join(json.dumps(r) for r in rekordy) + "\n", encoding="utf-8")
+        pod = folder / "sesja-zdalna" / "subagents"
+        pod.mkdir(parents=True)
+        (pod / "agent-1.jsonl").write_text(json.dumps(wywolanie("z2", dt.timedelta(minutes=-1), wyj=1000, cwd=cwd)) + "\n",
+                                           encoding="utf-8")
+        return projekty
+
+    def konfiguruj(self, **pola):
+        plik = self.tmp / "ws" / "konfiguracja.json"
+        konf = json.loads(plik.read_text(encoding="utf-8"))
+        konf.update(pola)
+        plik.write_text(json.dumps(konf), encoding="utf-8")
+
+    def test_zbierz_liczby(self):
+        projekty = self.zdalne_transkrypcje()
+        wynik = json.loads(self.uruchom("zbierz_liczby.py", "--projekty", str(projekty)))
+        self.assertEqual(sorted(wynik["calls"]), ["z1", "z2"])
+        self.assertEqual(wynik["calls"]["z1"]["out"], 1000)                 # deduplikacja po message.id
+        self.assertTrue(wynik["calls"]["z2"]["sub"])
+        self.assertEqual(len(wynik["owner"]), 2)                            # tekst i zrzut ekranu; bez briefu i `claude -p`
+        self.assertEqual(wynik["cost_state"], {"sesja-zd": 0.5})
+        self.assertNotIn("zrób to", json.dumps(wynik, ensure_ascii=False))   # bez treści rozmów
+
+    def test_zrodlo_zdalne_poleceniem(self):
+        projekty = self.zdalne_transkrypcje()
+        self.zaloz_konto()
+        self.konfiguruj(zrodla_zdalne=[{"nazwa": "zdalny", "polecenie": [sys.executable, "-", "--projekty", str(projekty)]}])
+        self.dopisz("f-repo", "sesja-repo.jsonl", [wywolanie("l1", dt.timedelta(minutes=-1), wyj=10, cwd=str(self.repo))])
+        wyjscie, _ = self.sygnaly()
+        biezacy = [w for w in self.trend_csv() if w["zrodlo"] == "zdalny"][-1]
+        self.assertEqual((biezacy["wywolania_api"], biezacy["wiad_wlasciciela"], biezacy["koszt_api_usd"]), ("2", "2", "0.04"))
+        self.assertTrue((self.tmp / "ws" / "dane" / "tokeny-archiwum-zdalny.json").is_file())
+        podsumowanie = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("`zdalny`: odczyt poleceniem, 2 wywołań w odczycie", podsumowanie)
+        self.assertIn("Źródło `zdalny`", podsumowanie)
+        self.assertTrue([w for w in self.trend_csv() if w["zrodlo"] == "lokalne"])   # lokalny trend bez zmian
+
+    def test_zrodlo_z_pliku_blad_i_pominiecie(self):
+        projekty = self.zdalne_transkrypcje()
+        self.zaloz_konto()
+        (self.tmp / "ws" / "dane").mkdir(exist_ok=True)
+        (self.tmp / "ws" / "dane" / "liczby.json").write_text(
+            self.uruchom("zbierz_liczby.py", "--projekty", str(projekty)), encoding="utf-8")
+        self.konfiguruj(zrodla_zdalne=[{"nazwa": "sandbox", "plik": "dane/liczby.json"},
+                                       {"nazwa": "padniety", "polecenie": [sys.executable, "-c", "import sys; sys.exit(3)"]},
+                                       {"nazwa": "wylaczony", "plik": "x.json", "wlaczone": False}])
+        wyjscie, _ = self.sygnaly()
+        podsumowanie = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("`sandbox`: plik `liczby.json` z ", podsumowanie)
+        self.assertIn("`padniety`: **brak odczytu** (polecenie zwróciło 3", podsumowanie)
+        self.assertNotIn("wylaczony", podsumowanie)
+        self.assertEqual({w["zrodlo"] for w in self.trend_csv()}, {"sandbox"})     # sesje bazowe nie mają wywołań API
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--bez-gh", "--wyjscie", str(wyjscie), "--bez-zdalnych")
+        self.assertIn("`sandbox`: pominięte (`--bez-zdalnych`)", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
+
+    def test_trend_zachowuje_obce_wiersze_i_uwagi(self):
+        import tokeny
+        plik = self.tmp / "t.csv"
+        plik.write_text("tydzien,zrodlo,okno_od,wywolania_api,pokrycie,wiad_wlasciciela_sygnaly\n"
+                        "2026-09-07,sandbox-pomiar,2026-09-07,5,okno,\n2026-09-07,sandbox-pomiar,2026-09-09,6,okno,\n"
+                        "2026-09-07,lokalne,,3,ręczna uwaga; okres niezakończony,7\n", encoding="utf-8")
+        wynik = tokeny.zapisz_trend(plik, [{"tydzien": "2026-09-07", "zrodlo": "lokalne", "wywolania_api": 4, "pokrycie": ""}])
+        self.assertEqual([(w["zrodlo"], w.get("okno_od")) for w in wynik],
+                         [("lokalne", ""), ("sandbox-pomiar", "2026-09-07"), ("sandbox-pomiar", "2026-09-09")])
+        self.assertEqual(wynik[0]["pokrycie"], "ręczna uwaga")              # własna uwaga skryptu liczona od nowa
+        self.assertEqual(wynik[0]["wiad_wlasciciela_sygnaly"], "7")         # kolumna, której skrypt nie liczy, zostaje
+
+    def test_claude_p_to_nie_wiadomosc_wlasciciela(self):
+        pola = {"cwd": str(self.repo), "sessionId": "x", "timestamp": ts(), "origin": {"kind": "human"}, "entrypoint": "sdk-cli"}
+        self.dopisz("f-repo", "sesja-repo.jsonl", [{"type": "user", **pola, "message": {"content": "test hooka"}}])
+        _, m = self.sygnaly()
+        self.assertEqual(m["wiad_wlasciciela"], 2)
+
+
 class TestPrzypomnienie(Srodowisko):
     def hook(self, cwd, dzis=None):
         argumenty = ["--dzis", dzis] if dzis else []
