@@ -16,6 +16,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import wspolne  # noqa: E402
+import teksty  # noqa: E402
+from teksty import t  # noqa: E402
 
 NAGLOWEK = pathlib.Path(__file__).resolve().parent.parent / "assets" / "metryki-naglowek.csv"
 
@@ -64,13 +66,14 @@ def main(argv=None):
     a = ap.parse_args(argv)
     katalog = pathlib.Path(a.katalog).expanduser() if a.katalog else wspolne.znajdz_katalog_roboczy()[0]
     if katalog is None:
-        sys.exit("Nie znaleziono katalogu roboczego retro (--katalog).")
+        sys.exit(t("dop_brak_katalogu"))
+    teksty.ustaw(wspolne.wczytaj_konfiguracje(katalog))
     if a.metryki:
         plik = pathlib.Path(a.metryki)
     else:
         kandydaci = sorted((katalog / "dane").glob("sygnaly-*/metryki.json"), key=lambda p: p.stat().st_mtime)
         if not kandydaci:
-            sys.exit("Brak dane/sygnaly-*/metryki.json: uruchom najpierw sygnaly.py albo podaj --metryki.")
+            sys.exit(t("dop_brak_metryk"))
         plik = kandydaci[-1]
     metryki = json.loads(plik.read_text(encoding="utf-8"))
     wiersz = {"retro": a.retro, "data": a.data or dt.date.today().isoformat(), **metryki,

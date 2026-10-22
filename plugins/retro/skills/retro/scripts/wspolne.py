@@ -15,6 +15,10 @@ import pathlib
 import re
 import shutil
 import subprocess
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import teksty  # noqa: E402
 
 PLIK_KONFIGURACJI = "konfiguracja.json"
 KATALOG_PROJEKTU = ".retro"
@@ -24,6 +28,7 @@ POLECENIE = "/retro"
 DOMYSLNA_KONFIGURACJA = {
     "wersja": 1,
     "tryb": "konto",                       # konto | projekt
+    "jezyk": "pl",                         # pl | en | inny kod (teksty i szablony en); brak pola = sprzed 0.2.0, po polsku
     "kalendarz": "PL",                     # PL | brak (sam weekend)
     "dni_wolne_dodatkowe": [],             # ["2026-12-31", ...]
     "prog_przypomnienia_dni_roboczych": 5,
@@ -169,7 +174,7 @@ def dni_robocze_po(od: dt.date, do: dt.date, konf: dict = None) -> int:
 # ---------------------------------------------------------------- retro
 
 WZOR_PLIKU_RETRO = re.compile(r"^R(\d+)-(\d{4}-\d{2}-\d{2})\.md$")
-ZNACZNIK_ZAKONCZONE = re.compile(r"\*\*Status:\*\*\s*zakończone", re.IGNORECASE)
+ZNACZNIK_ZAKONCZONE = teksty.WZOR_ZAKONCZONE    # „zakończone” (pl), „completed” (en), też „done”, „closed”
 
 
 def retro_zakonczone(katalog_retro: pathlib.Path) -> list:

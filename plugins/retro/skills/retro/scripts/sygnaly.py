@@ -26,25 +26,22 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import wspolne  # noqa: E402
+import teksty  # noqa: E402
 import tokeny  # noqa: E402
+from teksty import t  # noqa: E402
 from tokeny import (PROG_DUZEGO_KONTEKSTU, PROG_WYBUDZENIA_H, PROG_WYBUDZENIA_TOKENY,  # noqa: E402,F401
                     czas_lokalny, dodaj_wywolanie, koszt_wywolania, stawki, wczytaj_cennik, wywolanie_api)
 
-WZOR_KOREKTY = re.compile(
-    r"(^|\W)(nie |dlaczego|czemu|znowu|ponownie|przecież|mówiłem|prosiłem|miałeś|miałaś|"
-    r"zapomnia|źle|błąd|nie widzę|gdzie jest|stop\b|czekaj|zatrzymaj|jeszcze raz|"
-    r"why\b|again\b|wrong\b|don't\b|didn't\b)",
-    re.IGNORECASE,
-)
-# Rekomendacja bywa opisana różnie: „(rekomendowane)”, „(Rekomendacja)”, „— zalecam”, „(zalecane)”, „(Recommended)”.
-WZOR_REKOMENDACJI = re.compile(r"(?<!nie )\b(rekomend\w*|recommended|zalec\w*)", re.IGNORECASE)
+# Słowa „możliwej korekty” w języku z konfiguracji plus angielskie; main() ustawia je po wczytaniu konfiguracji.
+WZOR_KOREKTY = teksty.wzor_korekty("pl")
+# Rekomendacja bywa opisana różnie: „(rekomendowane)”, „— zalecam”, „(Recommended)”, „(recomendado)”, „(empfohlen)”.
+WZOR_REKOMENDACJI = teksty.WZOR_REKOMENDACJI
 WZOR_PR = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+")
 # Sesje uruchomione w scratchpadzie Claude Code (np. `claude -p` z testów) to nie praca właściciela.
 WZOR_SCRATCHPAD = re.compile(r"[\\/]claude(-\d+)?[\\/].+[\\/]scratchpad([\\/]|$)", re.IGNORECASE)
 
 # Sekrety w raportach. Raporty trafiają do `dane/` i do kontekstu podagentów, więc ciągi wyglądające na sekret
 # są zamazywane przed zapisem. Heurystyka: wzór (zachowany przedrostek, sekret) albo cały dopasowany ciąg.
-ZAMAZANE = "[zamazane]"
 _WARTOSC = r"(\\\"[^\"]*?\\\"|\"[^\"]*\"|'[^']*'|[^\s\"'`,;|)]+)"
 WZORY_SEKRETOW = [
     (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.S), False),
@@ -60,7 +57,7 @@ WZORY_SEKRETOW = [
 WZOR_DLUGI_CIAG = re.compile(r"(?<![A-Za-z0-9+=])[A-Za-z0-9+=]{32,}(?![A-Za-z0-9+=])")
 WZOR_HEX = re.compile(r"[0-9a-fA-F]+\Z")
 # Pytanie o fakt znany tylko użytkownikowi (np. „gdzie jestem?”) nie ma opcji rekomendowanej z natury.
-ZNACZNIK_FAKTU = "[fakt]"
+ZNACZNIKI_FAKTU = teksty.ZNACZNIKI_FAKTU
 # Tekst w rekordzie „user”, który nie jest wiadomością właściciela (powiadomienia, briefy innych sesji).
 NIE_WLASCICIEL = ("<local-command", "<task-notification", "[Cross-session", "<cross-session-message",
                   "<system-reminder", "Background (from the session")
@@ -74,6 +71,7 @@ MARGINES_SESJI_MIN = 30
 def zamaz(tekst: str):
     """Zwraca (tekst z zamazanymi sekretami, liczba zamazań)."""
     licznik = 0
+    ZAMAZANE = t("zamazane")
 
     def z_przedrostkiem(m):
         nonlocal licznik
@@ -140,17 +138,17 @@ def tekst_tresci(tresc) -> str:
             if x.get("type") == "text":
                 czesci.append(x.get("text", ""))
             elif x.get("type") == "image":
-                czesci.append("[obraz]")
+                czesci.append(t("obraz"))
             elif x.get("type") == "tool_result":
-                t = x.get("content")
-                czesci.append(t if isinstance(t, str) else json.dumps(t, ensure_ascii=False))
+                zawartosc = x.get("content")
+                czesci.append(zawartosc if isinstance(zawartosc, str) else json.dumps(zawartosc, ensure_ascii=False))
         return "\n".join(czesci)
     return ""
 
 
-def skroc(t: str, n: int) -> str:
-    t = re.sub(r"\s+", " ", t or "").strip()
-    return t if len(t) <= n else t[: n - 1] + "…"
+def skroc(napis: str, n: int) -> str:
+    napis = re.sub(r"\s+", " ", napis or "").strip()
+    return napis if len(napis) <= n else napis[: n - 1] + "…"
 
 
 def parsuj_odpowiedzi(tekst: str, pytania: list) -> list:
@@ -189,7 +187,7 @@ def klasyfikuj_odpowiedz(odp, q) -> str:
         return "odlozone"
     if odp.strip() == "[No preference]":
         return "bez_wyboru"
-    if ZNACZNIK_FAKTU in (q.get("question") or "").lower():
+    if any(z in (q.get("question") or "").lower() for z in ZNACZNIKI_FAKTU):
         # odpowiedź na pytanie o fakt bywa tekstem spoza opcji, ale to nie korekta kierunku
         return "fakt"
     etykiety = [o.get("label", "") for o in q.get("options", [])]
@@ -296,9 +294,9 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                     dodaj_wywolanie(s.wywolania, wywolanie_api(d, czas, False))
             if czas is None or not (od <= czas < do):
                 if typ == "assistant" and isinstance(tresc, list):
-                    t = " ".join(x.get("text", "") for x in tresc if x.get("type") == "text")
-                    if t.strip():
-                        ostatni_tekst_asystenta = t
+                    napis = " ".join(x.get("text", "") for x in tresc if x.get("type") == "text")
+                    if napis.strip():
+                        ostatni_tekst_asystenta = napis
                 continue
             s.pierwszy = s.pierwszy or czas
             s.ostatni = czas
@@ -317,16 +315,16 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
             if typ == "assistant" and isinstance(tresc, list):
                 if wiad.get("model"):
                     s.modele[wiad["model"]] += 1
-                t = " ".join(x.get("text", "") for x in tresc if x.get("type") == "text")
-                if t.strip():
-                    ostatni_tekst_asystenta = t
+                napis = " ".join(x.get("text", "") for x in tresc if x.get("type") == "text")
+                if napis.strip():
+                    ostatni_tekst_asystenta = napis
                 for x in tresc:
                     if x.get("type") != "tool_use":
                         continue
                     nazwa, wej = x.get("name"), x.get("input") or {}
                     if nazwa in ("Agent", "Task"):
                         s.licz["podagenci"] += 1
-                        s.podagenci[(wej.get("subagent_type") or "general-purpose", wej.get("model") or "dziedziczony")] += 1
+                        s.podagenci[(wej.get("subagent_type") or "general-purpose", wej.get("model") or t("dziedziczony"))] += 1
                     elif nazwa == "SendMessage":
                         s.licz["wiad_do_sesji"] += 1
                     elif nazwa == "Workflow":
@@ -561,7 +559,7 @@ def git_i_gh(repozytoria: dict, od, do, gh, aktywnosc: dict = None):
         r = {"commity": 0, "commity_fix": 0, "reverty": 0, "zmiany_regul": 0, "za_zdalna": None,
              "commity_bez_sesji": 0, "pr_bez_sesji": 0,
              "pr_otwarte": 0, "pr_scalone": 0, "pr_h_do_scalenia": [], "pr_commity": [],
-             "ci_wszystkie": 0, "ci_porazki": 0, "gh": "ok" if gh else "pominięty (brak gh albo --bez-gh)"}
+             "ci_wszystkie": 0, "ci_porazki": 0, "gh": t("gh_ok") if gh else t("gh_pominiety")}
         czasy = aktywnosc.get(nazwa, [])
         # Checkout w tyle za zdalną gałęzią (wg ostatniego fetch; skrypt sam nie łączy się z siecią):
         # pliki reguł czytane z dysku mogą być wtedy nieaktualne.
@@ -577,8 +575,8 @@ def git_i_gh(repozytoria: dict, od, do, gh, aktywnosc: dict = None):
                 if len(czesci) == 3:
                     linie[czesci[0]] = (czas_lokalny(czesci[1]), czesci[2])
             r["commity"] = len(linie)
-            r["commity_fix"] = sum(1 for _, t in linie.values() if re.match(r"fix", t, re.I))
-            r["reverty"] = sum(1 for _, t in linie.values() if t.lower().startswith("revert"))
+            r["commity_fix"] = sum(1 for _, temat in linie.values() if re.match(r"fix", temat, re.I))
+            r["reverty"] = sum(1 for _, temat in linie.values() if temat.lower().startswith("revert"))
             r["commity_bez_sesji"] = sum(1 for c, _ in linie.values() if c and bez_sesji(c, czasy))
         kod, out, _ = uruchom(["git", "log", "--all", "--format=%H", *zakres, "--",
                                "CLAUDE.md", "*/CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md"], sciezka)
@@ -586,7 +584,7 @@ def git_i_gh(repozytoria: dict, od, do, gh, aktywnosc: dict = None):
             r["zmiany_regul"] = len(set(out.split()))
         kod, out, _ = uruchom(["git", "remote"], sciezka)
         if not out.strip():
-            r["gh"] = "brak zdalnego"
+            r["gh"] = t("gh_brak_zdalnego")
         elif gh:
             kod, out, err = uruchom([gh, "pr", "list", "--state", "all", "--limit", "300",
                                      "--json", "number,createdAt,mergedAt"], sciezka)
@@ -602,7 +600,7 @@ def git_i_gh(repozytoria: dict, od, do, gh, aktywnosc: dict = None):
                         if utw:
                             r["pr_h_do_scalenia"].append(round((scal - utw).total_seconds() / 3600, 1))
             else:
-                r["gh"] = "błąd: " + skroc(err, 120)
+                r["gh"] = t("gh_blad", blad=skroc(err, 120))
             # Commity na PR (przybliżenie rund poprawek). GraphQL liczy węzły autorów: limit 40 mieści się w 500 tys.
             kod, out, err = uruchom([gh, "pr", "list", "--state", "merged", "--limit", "40",
                                      "--search", f"merged:{od_data.isoformat()}..{do_data.isoformat()}",
@@ -611,7 +609,7 @@ def git_i_gh(repozytoria: dict, od, do, gh, aktywnosc: dict = None):
                 lista = json.loads(out or "[]")
                 r["pr_commity"] = [len(pr.get("commits") or []) for pr in lista]
                 if len(lista) == 40:
-                    r["gh"] = "ok (commity/PR z 40 najnowszych)"
+                    r["gh"] = t("gh_40")
             kod, out, err = uruchom([gh, "run", "list", "--limit", "500",
                                      "--json", "conclusion,createdAt"], sciezka)
             if kod == 0:
@@ -662,7 +660,7 @@ def pliki_regul(repozytoria: dict, konf: dict) -> list:
         baza = pathlib.Path(sciezka)
         for wzor in ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", "*/CLAUDE.md"):
             pliki += [(nazwa, p) for p in sorted(baza.glob(wzor))]
-        # Śledzone CLAUDE.md na dowolnej głębokości (np. mitm/db/CLAUDE.md); bez przeszukiwania vendor/ i node_modules/.
+        # Śledzone CLAUDE.md na dowolnej głębokości (np. uslugi/db/CLAUDE.md); bez przeszukiwania vendor/ i node_modules/.
         kod, out, _ = uruchom(["git", "-c", "core.quotepath=off", "ls-files", "--", "CLAUDE.md", "*/CLAUDE.md"], sciezka)
         if kod == 0:
             pliki += [(nazwa, baza / wzgledna) for wzgledna in sorted(out.splitlines()) if wzgledna]
@@ -701,23 +699,24 @@ def pamiec(foldery, od, projekty_folderow: dict):
 
 # ---------------------------------------------------------------- raporty
 
-def pora(czas: dt.datetime, konf: dict) -> str:
+def pora(czas: dt.datetime, konf: dict) -> tuple:
+    """(kolejność, czy noc, etykieta) pory dnia wiadomości wg `godziny_pracy`."""
     g = konf.get("godziny_pracy") or wspolne.DOMYSLNA_KONFIGURACJA["godziny_pracy"]
     minuty = lambda hhmm: int(hhmm[:2]) * 60 + int(hhmm[3:5])  # noqa: E731
     m = czas.hour * 60 + czas.minute
+    pola = {"od": g["od"], "do": g["do"], "wieczor": g["wieczor_do"]}
     if m < minuty(g["od"]):
-        return f"noc (przed {g['od']})"
+        return 0, True, t("pora_noc_przed", **pola)
     if m < minuty(g["do"]):
-        return f"dzień ({g['od']}–{g['do']})"
+        return 1, False, t("pora_dzien", **pola)
     if m < minuty(g["wieczor_do"]):
-        return f"wieczór ({g['do']}–{g['wieczor_do']})"
-    return f"noc (po {g['wieczor_do']})"
+        return 2, False, t("pora_wieczor", **pola)
+    return 3, True, t("pora_noc_po", **pola)
 
 
 def raport_projektu(nazwa, sesje, od_data, do_data) -> str:
-    l = [f"# {nazwa}: sygnały {od_data} … {do_data}", ""]
-    l += ["## Sesje", "",
-          "| sesja | tytuł | aktywna | wiad. wł. | pytania (rek/inna/własna/odł.) | przerw. | blokady | błędy | kompakty | podagenci | koszt API |",
+    l = [t("proj_tytul", nazwa=nazwa, od=od_data, do=do_data), ""]
+    l += [t("proj_sesje"), "", t("proj_sesje_kolumny"),
           "|---|---|---|---|---|---|---|---|---|---|---|"]
     for s in sesje:
         c = s.licz
@@ -725,34 +724,33 @@ def raport_projektu(nazwa, sesje, od_data, do_data) -> str:
         l.append(f"| `{s.sid[:8]}` | {s.tytul or '—'} | {s.pierwszy:%m-%d %H:%M} – {s.ostatni:%m-%d %H:%M} | "
                  f"{c['wiad_wlasciciela']} | {c['pytania']} ({c['pyt_rekomendowana']}/{c['pyt_inna']}/{c['pyt_wlasna']}/{c['pyt_odlozone']}) | "
                  f"{c['przerwania']} | {c['blokady_klasyfikatora']} | {c['bledy_narzedzi']} | {c['kompakty']} | {c['podagenci']} | {koszt} |")
-    l += ["", "## Oś czasu", "",
-          "Legenda: **[K?]** = heurystycznie możliwa korekta; klasy odpowiedzi: rekomendowana / inna / własna "
-          "(tekst spoza opcji) / odłożone / bez wyboru / fakt (pytanie z „[fakt]”).", ""]
+    l += ["", t("proj_os"), "", t("proj_legenda"), ""]
     zdarzenia = sorted(((czas, s, r, d) for s in sesje for czas, r, d in s.zdarzenia), key=lambda x: x[0])
     for czas, s, rodzaj, d in zdarzenia:
         znak = f"`{czas:%m-%d %H:%M}` `{s.sid[:8]}`"
         if rodzaj == "wlasciciel":
-            w_trakcie = " (w trakcie pracy Claude'a)" if d.get("w_trakcie") else ""
-            l.append(f"- {znak} **Właściciel{w_trakcie}{' [K?]' if d['korekta'] else ''}:** {d['tekst']}")
+            w_trakcie = t("w_trakcie") if d.get("w_trakcie") else ""
+            korekta = " " + t("znak_korekty") if d["korekta"] else ""
+            l.append(f"- {znak} **{t('wlasciciel')}{w_trakcie}{korekta}:** {d['tekst']}")
             if d["poprzedzone"]:
-                l.append(f"  - ↳ wcześniej Claude: _{d['poprzedzone']}_")
+                l.append(t("wczesniej_claude", tekst=d["poprzedzone"]))
         elif rodzaj == "pytanie":
-            l.append(f"- {znak} **Pytanie:** {skroc(d['pytanie'], 300)} → **{d['klasa']}:** {skroc(d['odpowiedz'] or '', 500)}")
+            l.append(f"- {znak} {t('zd_pytanie')} {skroc(d['pytanie'], 300)} → **{d['klasa']}:** {skroc(d['odpowiedz'] or '', 500)}")
         elif rodzaj == "blokada":
-            l.append(f"- {znak} **Blokada klasyfikatora** ({d['narzedzie']}): `{d['wejscie']}`")
+            l.append(f"- {znak} {t('zd_blokada')} ({d['narzedzie']}): `{d['wejscie']}`")
         elif rodzaj == "odmowa":
-            l.append(f"- {znak} **Odmowa właściciela** ({d['narzedzie']}): `{d['wejscie']}`")
+            l.append(f"- {znak} {t('zd_odmowa')} ({d['narzedzie']}): `{d['wejscie']}`")
         elif rodzaj == "przerwanie":
-            l.append(f"- {znak} **Przerwanie przez właściciela.** Wcześniej Claude: _{d['poprzedzone']}_")
+            l.append(f"- {znak} " + t("zd_przerwanie", tekst=d["poprzedzone"]))
         elif rodzaj == "polecenie":
-            l.append(f"- {znak} Polecenie `{d['polecenie']}`")
+            l.append(f"- {znak} " + t("zd_polecenie", polecenie=d["polecenie"]))
         elif rodzaj == "kompakt":
-            l.append(f"- {znak} Kompakt kontekstu")
+            l.append(f"- {znak} {t('zd_kompakt')}")
     bledy = collections.Counter()
     for s in sesje:
         bledy.update(s.bledy)
     if bledy:
-        l += ["", "## Najczęstsze błędy narzędzi", ""]
+        l += ["", t("proj_bledy"), ""]
         for (narz, kom), n in bledy.most_common(15):
             l.append(f"- {n}× **{narz}**: {kom}")
     pod, pod_m = collections.Counter(), collections.Counter()
@@ -760,15 +758,15 @@ def raport_projektu(nazwa, sesje, od_data, do_data) -> str:
         pod.update(s.podagenci)
         pod_m.update(s.podagenci_modele)
     if pod or pod_m:
-        l += ["", "## Podagenci", "", "Wywołania (typ, model zadany w wywołaniu):", ""]
-        for (t, m), n in pod.most_common():
-            l.append(f"- {n}× {t} / {m}")
-        l += ["", "Faktycznie uruchomieni (typ, model z ich transkrypcji):", ""]
-        for (t, m), n in pod_m.most_common():
-            l.append(f"- {n}× {t} / {m}")
+        l += ["", t("proj_podagenci"), "", t("proj_podagenci_zadane"), ""]
+        for (typ, m), n in pod.most_common():
+            l.append(f"- {n}× {typ} / {m}")
+        l += ["", t("proj_podagenci_faktyczne"), ""]
+        for (typ, m), n in pod_m.most_common():
+            l.append(f"- {n}× {typ} / {m}")
     pr = sorted(set().union(*(s.pr for s in sesje)))
     if pr:
-        l += ["", "## PR-y wspomniane w sesjach", ""] + [f"- {u}" for u in pr]
+        l += ["", t("proj_pr"), ""] + [f"- {u}" for u in pr]
     return "\n".join(l) + "\n"
 
 
@@ -777,69 +775,62 @@ def tys(n) -> str:
 
 
 def raport_trendu(wiersze, uwaga: str, zdalne: list = ()) -> list:
-    l = ["", "## Trend tokenów (tydzień po tygodniu)", ""]
+    l = ["", t("trend_tytul"), ""]
     if wiersze is None:
-        return l + [f"Trend {uwaga}."]
-    l += [f"Plik `{tokeny.PLIK_TRENDU}` w katalogu roboczym (commitowany; archiwum liczb: `{tokeny.PLIK_ARCHIWUM.as_posix()}`). "
-          f"Ostatnie {tokeny.OSTATNIE_TYGODNIE} zakończone tygodnie z aktywnością wobec mediany "
-          f"{tokeny.WCZESNIEJSZE_TYGODNIE} wcześniejszych; zmiana o więcej niż {tokeny.PROG_ZMIANY:.0%} to strzałka. "
-          "Dla każdego wskaźnika więcej = gorzej; **↑** oznacza pogorszenie."]
+        return l + [t("trend_pominiety", uwaga=uwaga)]
+    l += [t("trend_opis", plik=tokeny.PLIK_TRENDU, archiwum=tokeny.PLIK_ARCHIWUM.as_posix(),
+            ostatnie=tokeny.OSTATNIE_TYGODNIE, wczesniej=tokeny.WCZESNIEJSZE_TYGODNIE, prog=f"{tokeny.PROG_ZMIANY:.0%}")]
     if zdalne:
-        l += ["", "Źródła zdalne (`zrodla_zdalne`):", ""] + [f"- {u}" for u in zdalne]
+        l += ["", t("trend_zdalne"), ""] + [f"- {u}" for u in zdalne]
     zrodla = sorted({w.get("zrodlo") or tokeny.ZRODLO for w in wiersze})
     fmt = lambda v: "—" if v is None else (f"{v / 1000:.0f}k" if abs(v) >= 10000 else f"{v:g}")  # noqa: E731
     for zrodlo in zrodla:
         tygodnie = [w.get("tydzien") for w in wiersze if (w.get("zrodlo") or tokeny.ZRODLO) == zrodlo]
         if len(tygodnie) != len(set(tygodnie)):
-            l += ["", f"Źródło `{zrodlo}`: kilka wierszy na tydzień (pomiary okienne), bez tabeli trendu."]
+            l += ["", t("trend_kilka_wierszy", zrodlo=zrodlo)]
             continue
         wyniki = tokeny.trend(wiersze, zrodlo)
-        l += ["", f"Źródło `{zrodlo}`:", "",
-              "| wskaźnik | mediana wcześniej (tyg.) | ostatnie tygodnie | mediana ostatnich | kierunek |", "|---|---|---|---|---|"]
+        l += ["", t("trend_zrodlo", zrodlo=zrodlo), "", t("trend_kolumny"), "|---|---|---|---|---|"]
         for etykieta, m_wcz, ostatnie, m_ost, kierunek, n_wcz in wyniki:
             kier = f"**{kierunek}**" if kierunek.startswith("↑") else kierunek
             l.append(f"| {etykieta} | {fmt(m_wcz)} ({n_wcz}) | "
-                     + ", ".join(f"{t[5:]}: {fmt(v)}" for t, v in ostatnie) + f" | {fmt(m_ost)} | {kier} |")
+                     + ", ".join(f"{tydz[5:]}: {fmt(v)}" for tydz, v in ostatnie) + f" | {fmt(m_ost)} | {kier} |")
         gorsze = [e for e, *_, k, _ in wyniki if k.startswith("↑")]
         if gorsze:
-            l += ["", f"**Pogarsza się ({zrodlo}):** " + ", ".join(gorsze) + "."]
+            l += ["", t("trend_gorsze", zrodlo=zrodlo) + ", ".join(gorsze) + "."]
     return l
 
 
 def raport_tokenow(tok: dict, sesje: list) -> list:
     m = tok["metryki"]
     proc = lambda v: "—" if v is None else f"{v}%"  # noqa: E731
-    l = ["", "## Tokeny i koszt (ceny API, miara względna)", "",
-         f"Ceny z `references/cennik.json` (stan na {tok['cennik_stan_na']}; nadpisuje je pole `cennik` w konfiguracji). "
-         "To miara względna, nie rachunek: konto na subskrypcji płaci limitem. Dolne oszacowanie, bo wywołania spoza "
-         "transkrypcji (klasyfikator trybu auto, tytuły sesji) nie są liczone. Wywołanie = unikalny `message.id`, "
-         "razem z transkrypcjami podagentów. Szczegóły i ograniczenia: `references/sygnaly.md`.", "",
-         "| | wartość |", "|---|---|",
-         f"| wywołania API | {m['wywolania_api']} |",
-         f"| koszt | ${m['koszt_api_usd']:.2f} |",
-         f"| trafienia cache (odczyt / cały kontekst) | {proc(tok['cache_trafienia_proc'])} |",
-         f"| tokeny wyjścia | {tok['wyjscie_tokeny']} |",
-         f"| mediana kontekstu sesji głównej | {tys(m['kontekst_mediana'])} |",
-         f"| wywołania sesji głównej > {PROG_DUZEGO_KONTEKSTU // 1000}k | {proc(m['kontekst_ponad_200k_proc'])} |",
-         f"| kontekst startowy, mediana ({tok['sesje_startowe']} sesji zaczętych w oknie) | {tys(m['kontekst_startowy_mediana'])} |",
-         f"| udział podagentów w koszcie | {proc(m['podagenci_koszt_proc'])} |",
-         f"| udział Opusa w koszcie podagentów | {proc(m['podagenci_opus_koszt_proc'])} |",
-         f"| wybudzenia (zapis cache > {PROG_WYBUDZENIA_TOKENY // 1000}k po przerwie > {PROG_WYBUDZENIA_H} h) | "
+    l = ["", t("tok_tytul"), "", t("tok_opis", stan=tok["cennik_stan_na"]), "",
+         t("tok_kolumny"), "|---|---|",
+         f"| {t('tok_wywolania')} | {m['wywolania_api']} |",
+         f"| {t('tok_koszt')} | ${m['koszt_api_usd']:.2f} |",
+         f"| {t('tok_cache')} | {proc(tok['cache_trafienia_proc'])} |",
+         f"| {t('tok_wyjscie')} | {tok['wyjscie_tokeny']} |",
+         f"| {t('tok_kontekst')} | {tys(m['kontekst_mediana'])} |",
+         f"| {t('tok_ponad', prog=PROG_DUZEGO_KONTEKSTU // 1000)} | {proc(m['kontekst_ponad_200k_proc'])} |",
+         f"| {t('tok_startowy', n=tok['sesje_startowe'])} | {tys(m['kontekst_startowy_mediana'])} |",
+         f"| {t('tok_podagenci')} | {proc(m['podagenci_koszt_proc'])} |",
+         f"| {t('tok_opus')} | {proc(m['podagenci_opus_koszt_proc'])} |",
+         f"| {t('tok_wybudzenia', tokeny=PROG_WYBUDZENIA_TOKENY // 1000, h=PROG_WYBUDZENIA_H)} | "
          f"{m['wybudzenia']} (${m['wybudzenia_koszt_usd']:.2f}) |"]
     if tok["modele"]:
-        l += ["", "Koszt wg modelu: " + ", ".join(f"{k} ${v:.2f}" for k, v in tok["modele"].most_common()) + "."]
+        l += ["", t("tok_modele") + ", ".join(f"{k} ${v:.2f}" for k, v in tok["modele"].most_common()) + "."]
     drogie = sorted((s for s in sesje if s.koszt), key=lambda s: -s.koszt)[:5]
     if drogie:
-        l += ["", "Najdroższe sesje:", ""]
+        l += ["", t("tok_drogie"), ""]
         l += [f"- `{s.sid[:8]}` {s.projekt[0]}, {s.tytul or '—'}: ${s.koszt:.2f}" for s in drogie]
     if tok["wybudzenia"]:
-        l += ["", "Wybudzenia (koszt samego zapisu cache):", ""]
-        l += [f"- `{w['czas']:%m-%d %H:%M}` `{w['sesja'].sid[:8]}` po {w['przerwa_h']:.1f} h: zapis {tys(w['zapis'])}, ${w['koszt']:.2f}"
+        l += ["", t("tok_lista_wybudzen"), ""]
+        l += [f"- `{w['czas']:%m-%d %H:%M}` `{w['sesja'].sid[:8]}` "
+              + t("tok_wybudzenie", h=w["przerwa_h"], zapis=tys(w["zapis"]), koszt=w["koszt"])
               for w in tok["wybudzenia"]]
     if tok["nieznane_modele"]:
-        l += ["", "**Uwaga:** modeli bez ceny w cenniku nie wliczono do kosztu: " + ", ".join(
-            f"`{k}` ({n} wywołań)" for k, n in sorted(tok["nieznane_modele"].items())) + ". Dopisz je do pola `cennik` "
-            "w konfiguracji albo do `references/cennik.json` w repo pluginu."]
+        l += ["", t("tok_nieznane", lista=", ".join(
+            f"`{k}` ({t('tok_wywolan', n=n)})" for k, n in sorted(tok["nieznane_modele"].items())))]
     return l
 
 
@@ -861,7 +852,7 @@ def zakonczenie_retro(katalog, od_data):
     for numer, _, plik in wspolne.retro_zakonczone(pathlib.Path(katalog) / "retro"):
         # pierwszy commit, który dodał linię statusu „zakończone” (-G: zmiana linii pasującej do wzoru)
         kod, out, _ = uruchom(["git", "log", "--reverse", "--format=%cI%x09%h",
-                               r"-G\*\*Status:\*\*[[:space:]]*zako", "--", plik.name], str(plik.parent))
+                               "-G" + teksty.WZOR_ZAKONCZONE_GIT, "--", plik.name], str(plik.parent))
         if kod != 0 or not out.strip():
             continue
         czas_s, hash_ = out.splitlines()[0].split("\t", 1)
@@ -902,22 +893,25 @@ def main(argv=None):
     else:
         katalog, tryb = wspolne.znajdz_katalog_roboczy()
     if katalog is None and not a.wyjscie:
-        sys.exit("Nie znaleziono katalogu roboczego retro. Załóż go skryptem zaloz.py --tryb konto|projekt (patrz SKILL.md).")
+        sys.exit(t("brak_katalogu"))
     konf = wspolne.wczytaj_konfiguracje(katalog)
+    teksty.ustaw(konf)
+    global WZOR_KOREKTY
+    WZOR_KOREKTY = teksty.wzor_korekty()
 
     try:
         if len(a.od) > 10:
             od = dt.datetime.fromisoformat(a.od.replace(" ", "T")).replace(second=0, microsecond=0).astimezone()
-            od_data, poczatek = od.date(), "podany w `--od`"
+            od_data, poczatek = od.date(), t("pocz_podany")
         else:
             od_data = dt.date.fromisoformat(a.od)
-            od, poczatek = dt.datetime.combine(od_data, dt.time()).astimezone(), "od północy"
+            od, poczatek = dt.datetime.combine(od_data, dt.time()).astimezone(), t("pocz_polnoc")
             retro = None if a.od_poczatku_dnia else zakonczenie_retro(katalog, od_data)
             if retro:
-                od, poczatek = retro[0], f"od commita, który zakończył {retro[1]}"
+                od, poczatek = retro[0], t("pocz_commit", retro=retro[1])
         do_data = dt.date.fromisoformat(a.do) if a.do else dt.date.today()
     except ValueError as e:
-        sys.exit(f"Zła data w --od/--do: {e}")
+        sys.exit(t("zla_data", blad=e))
     do = dt.datetime.combine(do_data + dt.timedelta(days=1), dt.time()).astimezone()
     wyjscie = pathlib.Path(a.wyjscie) if a.wyjscie else katalog / "dane" / f"sygnaly-{od_data}_{do_data}"
     wyjscie.mkdir(parents=True, exist_ok=True)
@@ -947,9 +941,9 @@ def main(argv=None):
     # Trend tygodniowy: cała historia (transkrypcje + archiwum), tylko dla pełnego zakresu (bez --projekt).
     trend_wiersze, trend_uwaga, zdalne_uwagi = None, "", []
     if a.bez_trendu or katalog is None:
-        trend_uwaga = "pominięty (`--bez-trendu` albo brak katalogu roboczego)"
+        trend_uwaga = t("trend_bez")
     elif wybrane:
-        trend_uwaga = "pominięty, bo `--projekt` zawęża zakres (trend dotyczy całego zakresu retro)"
+        trend_uwaga = t("trend_projekt")
     else:
         historia, _ = wszystkie_sesje(EPOKA, dt.datetime.now().astimezone() + dt.timedelta(days=1), projekty, konf)
         arch = tokeny.aktualizuj_archiwum(katalog / tokeny.PLIK_ARCHIWUM, [s for s in historia if w_zakresie(s)])
@@ -960,18 +954,18 @@ def main(argv=None):
             if not nazwa or nazwa == tokeny.ZRODLO or zrodlo.get("wlaczone") is False:
                 continue
             if a.bez_zdalnych:
-                zdalne_uwagi.append(f"`{nazwa}`: pominięte (`--bez-zdalnych`)")
+                zdalne_uwagi.append(t("zdalne_pominiete", nazwa=nazwa))
                 continue
             odczyt, opis = tokeny.odczytaj_zrodlo(zrodlo, katalog)
             if odczyt is None:
-                zdalne_uwagi.append(f"`{nazwa}`: **brak odczytu** ({zamaz(opis)[0]}); trend tego źródła bez nowych danych")
+                zdalne_uwagi.append(t("zdalne_brak", nazwa=nazwa, opis=zamaz(opis)[0]))
                 continue
             plik_arch = katalog / tokeny.PLIK_ARCHIWUM.parent / f"tokeny-archiwum-{nazwa_pliku(nazwa)}.json"
             arch_z = tokeny.scal_odczyt(plik_arch, odczyt)
             trend_wiersze = tokeny.zapisz_trend(katalog / tokeny.PLIK_TRENDU,
                                                 tokeny.wiersze_tygodni(arch_z, cennik, zrodlo=nazwa))
-            zdalne_uwagi.append(f"`{nazwa}`: {opis}, {len(odczyt.get('calls') or {})} wywołań w odczycie, "
-                                f"{len(arch_z['calls'])} w archiwum `{plik_arch.name}`")
+            zdalne_uwagi.append(t("zdalne_ok", nazwa=nazwa, opis=opis, odczyt=len(odczyt.get("calls") or {}),
+                                  archiwum=len(arch_z["calls"]), plik=plik_arch.name))
     per_projekt = collections.defaultdict(list)
     for s in sesje:
         per_projekt[s.projekt[0]].append(s)
@@ -1012,6 +1006,7 @@ def main(argv=None):
     for s in sesje:
         suma.update(s.licz)
     pory = collections.Counter(pora(czas, konf) for s in sesje for czas, r, _ in s.zdarzenia if r == "wlasciciel")
+    po_godzinach = sum(n for (_, noc, _), n in pory.items() if noc)
     h_scal = [h for r in repo.values() for h in r["pr_h_do_scalenia"]]
     c_pr = [c for r in repo.values() for c in r["pr_commity"]]
     metryki = {
@@ -1019,7 +1014,7 @@ def main(argv=None):
         "dni_robocze": wspolne.dni_robocze_po(od_data - dt.timedelta(days=1), do_data, konf),
         "sesje": len(sesje), "projekty": len(per_projekt),
         "wiad_wlasciciela": suma["wiad_wlasciciela"], "wiad_mozliwa_korekta": suma["wiad_mozliwa_korekta"],
-        "wiad_po_20": sum(n for k, n in pory.items() if k.startswith("noc")),
+        "wiad_po_20": po_godzinach,
         "pytania": suma["pytania"], "pyt_rekomendowana": suma["pyt_rekomendowana"], "pyt_inna": suma["pyt_inna"],
         "pyt_wlasna": suma["pyt_wlasna"], "pyt_odlozone": suma["pyt_odlozone"],
         "pyt_bez_rekomendacji": suma["pyt_bez_rekomendacji"], "pyt_bez_wyboru": suma["pyt_bez_wyboru"],
@@ -1042,25 +1037,21 @@ def main(argv=None):
     }
     (wyjscie / "metryki.json").write_text(json.dumps(metryki, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    zakres = f"projekt `{repo_projektu}`" if repo_projektu else "całe konto (wszystkie projekty z transkrypcji)"
+    zakres = t("zakres_projekt", repo=repo_projektu) if repo_projektu else t("zakres_konto")
     if wybrane:
-        zakres += f", zawężone do: {', '.join(sorted(wybrane))}"
-    l = [f"# Sygnały do retro: {od_data} … {do_data}", "",
-         f"Wygenerowano {dt.datetime.now():%Y-%m-%d %H:%M} skryptem `scripts/sygnaly.py` skillu retro. Zakres: {zakres}. "
-         "Liczby z heurystyk (np. „możliwa korekta”) są wskazówką, nie dowodem: dowodem jest wpis w osi czasu projektu.", "",
-         f"Okno: {od:%Y-%m-%d %H:%M} … {do_data} 23:59 ({poczatek}).", "",
-         f"Wiadomości właściciela wysłane w trakcie pracy Claude'a: {suma['wiad_w_trakcie']} (wliczone w `wiad_wlasciciela`). "
-         f"Pominięte sesje uruchomione w scratchpadzie (np. testy `claude -p`): {w_scratchpadzie}. "
-         f"Ciągi wyglądające na sekrety zamazane w osiach czasu: {zamazane} (heurystyka; patrz `references/sygnaly.md`).", "",
+        zakres += t("zakres_zawezone", lista=", ".join(sorted(wybrane)))
+    l = [t("pods_tytul", od=od_data, do=do_data), "",
+         t("pods_wstep", kiedy=f"{dt.datetime.now():%Y-%m-%d %H:%M}", zakres=zakres), "",
+         t("pods_okno", od=f"{od:%Y-%m-%d %H:%M}", do=do_data, poczatek=poczatek), "",
+         t("pods_uwagi_danych", w_trakcie=suma["wiad_w_trakcie"], scratchpad=w_scratchpadzie, zamazane=zamazane), "",
          ]
     retencja = retencja_dni()
     if retencja > 0 and (dt.date.today() - od_data).days > retencja:
-        l += [f"**Uwaga:** okno zaczyna się {(dt.date.today() - od_data).days} dni temu, a Claude Code usuwa transkrypcje "
-              f"starsze niż {retencja} dni (`cleanupPeriodDays`). Sesje sprzed {dt.date.today() - dt.timedelta(days=retencja)} "
-              "mogły już zniknąć z dysku, więc liczby dla początku okna są zaniżone.", ""]
-    l += ["## Metryki", "", "| metryka | wartość |", "|---|---|"]
+        l += [t("pods_retencja", dni=(dt.date.today() - od_data).days, retencja=retencja,
+                data=dt.date.today() - dt.timedelta(days=retencja)), ""]
+    l += [t("pods_metryki"), "", t("pods_metryki_kolumny"), "|---|---|"]
     l += [f"| {k} | {v} |" for k, v in metryki.items()]
-    l += ["", "## Projekty", "", "| projekt | sesje | wiad. wł. | [K?] | pytania | rek. | inna | własna | odłożone | fakt | przerw. | blokady | błędy | kompakty | podagenci | koszt API |",
+    l += ["", t("pods_projekty"), "", t("pods_projekty_kolumny"),
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for nazwa, lista in sorted(per_projekt.items()):
         c = collections.Counter()
@@ -1070,10 +1061,10 @@ def main(argv=None):
         l.append(f"| [{nazwa}]({nazwa_pliku(nazwa)}.md) | {len(lista)} | {c['wiad_wlasciciela']} | {c['wiad_mozliwa_korekta']} | {c['pytania']} | "
                  f"{c['pyt_rekomendowana']} | {c['pyt_inna']} | {c['pyt_wlasna']} | {c['pyt_odlozone']} | {c['pyt_fakt']} | {c['przerwania']} | "
                  f"{c['blokady_klasyfikatora'] + c['blokady_u_podagentow']} | {c['bledy_narzedzi']} | {c['kompakty']} | {c['podagenci']} | ${koszt:.2f} |")
-    l += ["", "## Pora wiadomości właściciela", ""] + [f"- {k}: {v}" for k, v in sorted(pory.items())]
+    l += ["", t("pods_pory"), ""] + [f"- {k[2]}: {v}" for k, v in sorted(pory.items())]
     l += raport_tokenow(tok, sesje)
     l += raport_trendu(trend_wiersze, trend_uwaga, zdalne_uwagi)
-    l += ["", "## Repozytoria", "", "| repo | ścieżka | commity | bez lok. sesji | fix | revert | zmiany reguł | PR otw. | bez lok. sesji | PR scal. | mediana h do scalenia | mediana commitów/PR | CI porażki/wszystkie | za zdalną | gh |",
+    l += ["", t("pods_repo"), "", t("pods_repo_kolumny"),
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for nazwa, r in repo.items():
         med_h = statistics.median(r["pr_h_do_scalenia"]) if r["pr_h_do_scalenia"] else "—"
@@ -1086,41 +1077,31 @@ def main(argv=None):
             if (r["commity_bez_sesji"] >= 3 and r["commity_bez_sesji"] >= 0.2 * r["commity"])
             or (r["pr_bez_sesji"] >= 2 and r["pr_bez_sesji"] >= 0.2 * r["pr_otwarte"])]
     if poza:
-        l += ["", "**Uwaga:** część pracy w repozytoriach nie ma lokalnych transkrypcji (brak zapisu sesji tego repo w odstępie "
-              f"±{MARGINES_SESJI_MIN} min): " + "; ".join(
-                  f"{n}: {r['commity_bez_sesji']} z {r['commity']} commitów"
-                  + (f", {r['pr_bez_sesji']} z {r['pr_otwarte']} otwartych PR" if r["pr_otwarte"] else "")
-                  for n, r in poza) + ". "
-              "To zwykle sandbox, sesje w chmurze, inna maszyna albo scalenia na GitHubie. Osie czasu, pytania i koszt tej "
-              "pracy nie widzą, więc nie zestawiaj ich z commitami tych repo (np. koszt na PR). Transkrypcje skopiowane "
-              "z innej maszyny dołącza pole `transkrypcje_dodatkowe` w konfiguracji."]
-    l += ["", "## Pliki reguł (linie)", ""] + [f"- {n} `{p}`: {k}" for n, p, k, osobno in regul if not osobno]
+        l += ["", t("pods_poza", margines=MARGINES_SESJI_MIN, lista="; ".join(
+            t("pods_poza_repo", n=n, bez=r["commity_bez_sesji"], wszystkie=r["commity"])
+            + (t("pods_poza_pr", bez=r["pr_bez_sesji"], wszystkie=r["pr_otwarte"]) if r["pr_otwarte"] else "")
+            for n, r in poza))]
+    l += ["", t("pods_reguly"), ""] + [f"- {n} `{p}`: {k}" for n, p, k, osobno in regul if not osobno]
     osobne = [(n, p, k, osobno) for n, p, k, osobno in regul if osobno]
     if osobne:
-        l += ["", f"Liczone osobno (`katalogi_regul_osobno`), poza `claude_md_linie`: "
-              f"{sum(k for _, _, k, _ in osobne)} linii w {len(osobne)} plikach.", ""]
+        l += ["", t("pods_reguly_osobno", linie=sum(k for _, _, k, _ in osobne), pliki=len(osobne)), ""]
         l += [f"- {n} `{p}`: {k}" for n, p, k, _ in osobne]
     if kopie_regul:
-        l += ["", "**Uwaga:** katalogi z wieloma zagnieżdżonymi `CLAUDE.md`, liczone w `claude_md_linie`: " + "; ".join(
-            f"{n} `{k}`: {p} plików, {li} linii" for n, k, p, li in kopie_regul) + ". Jeśli to kopie dla przyszłych "
-            "repozytoriów (a nie reguły, które ładują sesje w tym repo), dopisz katalog do `katalogi_regul_osobno`."]
+        l += ["", t("pods_kopie", lista="; ".join(
+            t("pods_kopie_poz", n=n, k=k, p=p, li=li) for n, k, p, li in kopie_regul))]
     w_tyle = [(nazwa, r["za_zdalna"]) for nazwa, r in repo.items() if r["za_zdalna"]]
     if w_tyle:
-        l += ["", "**Uwaga:** checkout jest za zdalną gałęzią (wg ostatniego `git fetch`), więc liczby linii reguł i ich treść "
-              "na dysku mogą być nieaktualne: " + ", ".join(f"{n} o {k} commitów" for n, k in w_tyle) + ". "
-              "Czytaj reguły z `git show @{u}:CLAUDE.md`."]
-    l += ["", "Liczone są pliki `CLAUDE.md` (śledzone na dowolnej głębokości), `CLAUDE.local.md` i `pliki_regul_dodatkowe` "
-          "z konfiguracji. Inne pliki, do których reguły odsyłają jako wiążących, dopisz do `pliki_regul_dodatkowe`; "
-          "katalogi z kopiami reguł dla innych repozytoriów do `katalogi_regul_osobno`."]
-    l += ["", f"## Pamięć: {pamiec_liczba} plików, zmienione w oknie: {len(pamiec_zmiany)}", ""]
+        l += ["", t("pods_w_tyle", lista=", ".join(t("pods_w_tyle_poz", n=n, k=k) for n, k in w_tyle))]
+    l += ["", t("pods_reguly_opis")]
+    l += ["", t("pods_pamiec", pliki=pamiec_liczba, zmiany=len(pamiec_zmiany)), ""]
     l += [f"- `{zm:%m-%d %H:%M}` {proj} / {nazwa}" for proj, nazwa, zm in pamiec_zmiany]
     if pamiec_bez_sesji:
-        l += ["", "Projekty z pamięcią, ale bez lokalnej sesji w oknie (praca gdzie indziej albo projekt uśpiony; "
-              "ich repo i pliki reguł nie są tu liczone, dodaj je w `repozytoria_dodatkowe`):", ""]
-        l += [f"- …{folder}: {n} plików pamięci" for folder, n in pamiec_bez_sesji]
+        l += ["", t("pods_pamiec_bez_sesji"), ""]
+        l += [t("pods_pamiec_poz", folder=folder, n=n) for folder, n in pamiec_bez_sesji]
     tresc, n = zamaz("\n".join(l) + "\n")
     (wyjscie / "podsumowanie.md").write_text(tresc, encoding="utf-8")
-    print(f"OK: {len(sesje)} sesji, {len(per_projekt)} projektów, {len(repo)} repo, zamazane sekrety: {zamazane + n} -> {wyjscie}")
+    print(t("pods_ok", sesje=len(sesje), projekty=len(per_projekt), repo=len(repo), zamazane=zamazane + n,
+            wyjscie=wyjscie))
     return metryki
 
 

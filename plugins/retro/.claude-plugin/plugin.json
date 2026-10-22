@@ -1,7 +1,7 @@
 {
   "name": "retro",
-  "version": "0.1.5",
-  "description": "Retrospektywa sposobu pracy z Claude Code w stylu Agile: rozlicza zobowiązania z poprzednich retro, zbiera dowody z transkrypcji, gita i GitHuba, proponuje zmiany do decyzji właściciela. Przypomina o zaległym retro.",
+  "version": "0.2.0",
+  "description": "Agile-style retrospective of working with Claude Code: reviews commitments from previous retros, gathers evidence from transcripts, git and GitHub, proposes changes for the user to decide. Reminds about an overdue retro. Multilingual (Polish and English templates; other languages via Claude).",
   "author": {"name": "Wojciech Zieliński"},
-  "keywords": ["retro", "retrospektywa", "continuous-improvement", "lessons-learned"]
+  "keywords": ["retro", "retrospective", "retrospektywa", "continuous-improvement", "lessons-learned", "i18n"]
 }

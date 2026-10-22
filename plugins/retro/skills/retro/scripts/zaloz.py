@@ -7,7 +7,8 @@ Tryb projektu (tylko jedno repo, retro wspólne dla zespołu, commitowane z proj
   python zaloz.py --tryb projekt [--repo ŚCIEŻKA]   (domyślnie repo bieżącego katalogu)
   → <repo>/.retro/
 
-Opcje: --kalendarz PL|brak  --prog N  --rytm N  --bez-oceny-wlasciciela  --model-podagentow NAZWA
+Opcje: --jezyk KOD (pl, en; inny kod: szablony en, Claude pisze w tym języku; domyślnie en)
+       --kalendarz PL|brak  --prog N  --rytm N  --bez-oceny-wlasciciela  --model-podagentow NAZWA
        --nadpisz-wskaznik (gdy wskaźnik konta prowadzi do innego katalogu)
 Wypisuje JSON z listą założonych i pozostawionych plików.
 """
@@ -20,6 +21,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import wspolne  # noqa: E402
+import teksty  # noqa: E402
+from teksty import t  # noqa: E402
 
 ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
 
@@ -34,6 +37,7 @@ def main(argv=None):
     ap.add_argument("--tryb", choices=["konto", "projekt"], required=True)
     ap.add_argument("--katalog", help="tryb konta: katalog roboczy (domyślnie ~/retro)")
     ap.add_argument("--repo", help="tryb projektu: repo (domyślnie bieżący katalog)")
+    ap.add_argument("--jezyk", default="en", help="język dokumentów i raportów: pl, en albo inny kod (szablony en)")
     ap.add_argument("--kalendarz", choices=["PL", "brak"], default="PL")
     ap.add_argument("--prog", type=int, default=5, help="dni robocze bez retro do przypomnienia")
     ap.add_argument("--rytm", type=int, default=2, help="zalecany rytm retro w dniach roboczych")
@@ -43,6 +47,10 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     utworzone, pozostawione, uwagi = [], [], []
+    jezyk = teksty.ustaw(a.jezyk)
+    szablony = teksty.jezyk_tekstow(jezyk)
+    if szablony != jezyk:
+        uwagi.append(t("zal_brak_szablonow", jezyk=jezyk, zapas=szablony))
 
     if a.tryb == "konto":
         katalog = pathlib.Path(a.katalog or "~/retro").expanduser().resolve()
@@ -50,7 +58,7 @@ def main(argv=None):
         start = pathlib.Path(a.repo or ".").expanduser().resolve()
         glowny = wspolne.git_glowny_katalog(str(start))
         if not glowny:
-            sys.exit(f"{start} nie jest w repozytorium git; tryb projektu wymaga repo.")
+            sys.exit(t("zal_nie_repo", sciezka=start))
         katalog = pathlib.Path(glowny) / wspolne.KATALOG_PROJEKTU
 
     def zapisz(sciezka: pathlib.Path, tresc: str):
@@ -70,28 +78,28 @@ def main(argv=None):
         utworzone.append(str(cel))
 
     konf = {k: v for k, v in wspolne.DOMYSLNA_KONFIGURACJA.items()}
-    konf.update({"tryb": a.tryb, "kalendarz": a.kalendarz, "prog_przypomnienia_dni_roboczych": a.prog,
+    konf.update({"tryb": a.tryb, "jezyk": jezyk, "kalendarz": a.kalendarz, "prog_przypomnienia_dni_roboczych": a.prog,
                  "rytm_dni_roboczych": a.rytm, "ocena_wlasciciela": not a.bez_oceny_wlasciciela,
                  "model_podagentow": a.model_podagentow})
     zapisz(katalog / wspolne.PLIK_KONFIGURACJI, json.dumps(konf, ensure_ascii=False, indent=2) + "\n")
     (katalog / "retro").mkdir(parents=True, exist_ok=True)
-    kopiuj("zobowiazania-start.md", katalog / "zobowiazania.md")
+    kopiuj(f"{szablony}/zobowiazania-start.md", katalog / "zobowiazania.md")
     kopiuj("metryki-naglowek.csv", katalog / "metryki.csv")
-    kopiuj("readme-katalogu.md", katalog / "README.md")
+    kopiuj(f"{szablony}/readme-katalogu.md", katalog / "README.md")
     zapisz(katalog / ".gitignore", "dane/\n")
     if a.tryb == "konto":
-        kopiuj("nauki-start.md", katalog / "nauki.md")
+        kopiuj(f"{szablony}/nauki-start.md", katalog / "nauki.md")
         if not wspolne.git_glowny_katalog(str(katalog)):
             r = subprocess.run(["git", "init", "-q", str(katalog)], capture_output=True, text=True)
             (utworzone if r.returncode == 0 else uwagi).append(
-                f"git init {katalog}" if r.returncode == 0 else f"git init nieudany: {r.stderr.strip()}")
+                f"git init {katalog}" if r.returncode == 0 else t("zal_git_init_blad", blad=r.stderr.strip()))
         wskaznik = wspolne.katalog_claude() / wspolne.WSKAZNIK_KONTA
         try:
             obecny = json.loads(wskaznik.read_text(encoding="utf-8")).get("katalog_roboczy")
         except (OSError, ValueError):
             obecny = None
         if obecny and pathlib.Path(obecny).expanduser().resolve() != katalog and not a.nadpisz_wskaznik:
-            uwagi.append(f"Wskaźnik {wskaznik} prowadzi do {obecny}; nie zmieniono (użyj --nadpisz-wskaznik).")
+            uwagi.append(t("zal_wskaznik", wskaznik=wskaznik, obecny=obecny))
         elif obecny and pathlib.Path(obecny).expanduser().resolve() == katalog:
             pozostawione.append(str(wskaznik))
         else:
@@ -100,7 +108,8 @@ def main(argv=None):
                                 encoding="utf-8")
             utworzone.append(str(wskaznik))
 
-    print(json.dumps({"katalog_roboczy": str(katalog), "tryb": a.tryb, "utworzone": utworzone,
+    print(json.dumps({"katalog_roboczy": str(katalog), "tryb": a.tryb, "jezyk": jezyk,
+                      "szablon_retro": str(ASSETS / szablony / "szablon-retro.md"), "utworzone": utworzone,
                       "pozostawione": pozostawione, "uwagi": uwagi}, ensure_ascii=False, indent=2))
 
 

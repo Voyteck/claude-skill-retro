@@ -13,6 +13,11 @@ import json
 import os
 import pathlib
 import statistics
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import teksty  # noqa: E402
+from teksty import t  # noqa: E402
 
 PLIK_CENNIKA = pathlib.Path(__file__).resolve().parent.parent / "references" / "cennik.json"
 PLIK_TRENDU = "tokeny-tydzien.csv"
@@ -32,16 +37,10 @@ KOLUMNY_TRENDU = [
     "kompakty", "wiad_wlasciciela_sygnaly", "sesje_sygnaly", "pokrycie_wiad_proc", "pokrycie",
     "koszt_cost_state_usd", "koszt_policzony_tych_sesji",
 ]
-# Wskaźniki trendu w podsumowaniu; dla każdego więcej = gorzej.
+# Wskaźniki trendu w podsumowaniu (etykiety: `wsk_<kolumna>` w teksty.py); dla każdego więcej = gorzej.
 WSKAZNIKI_TRENDU = [
-    ("koszt_na_wiad", "koszt na wiadomość (USD)"),
-    ("wywolania_na_wiad", "wywołania API na wiadomość"),
-    ("kontekst_mediana", "mediana kontekstu sesji głównej"),
-    ("proc_wywolan_ponad_200k", "% wywołań sesji głównej > 200k"),
-    ("wybudzenia_koszt_usd", "koszt wybudzeń (USD)"),
-    ("proc_kosztu_podagentow_opus", "% kosztu podagentów na Opusie"),
-    ("kontekst_startowy_mediana", "kontekst startowy sesji"),
-    ("koszt_api_usd", "koszt tygodnia (USD)"),
+    "koszt_na_wiad", "wywolania_na_wiad", "kontekst_mediana", "proc_wywolan_ponad_200k", "wybudzenia_koszt_usd",
+    "proc_kosztu_podagentow_opus", "kontekst_startowy_mediana", "koszt_api_usd",
 ]
 OSTATNIE_TYGODNIE, WCZESNIEJSZE_TYGODNIE, PROG_ZMIANY = 4, 8, 0.2
 
@@ -165,13 +164,13 @@ def czas_naiwny(czas) -> str:
     return czas.astimezone().replace(tzinfo=None).isoformat()
 
 
-def czas_zdarzenia(t: str):
+def czas_zdarzenia(napis: str):
     """Czas zdarzenia z archiwum: naiwny lokalny (format archiwum) albo ze strefą (wynik `zbierz_liczby.py`)."""
-    if t.endswith("Z") or "+" in t[10:] or "-" in t[10:]:
-        c = czas_lokalny(t)
+    if napis.endswith("Z") or "+" in napis[10:] or "-" in napis[10:]:
+        c = czas_lokalny(napis)
         return c.replace(tzinfo=None) if c else None
     try:
-        return dt.datetime.fromisoformat(t)
+        return dt.datetime.fromisoformat(napis)
     except ValueError:
         return None
 
@@ -199,8 +198,8 @@ def scal_odczyt(plik: pathlib.Path, odczyt: dict) -> dict:
     arch["calls"].update(odczyt.get("calls") or {})
     for klucz in ("owner", "compacts"):
         zdarzenia = {tuple(x) for x in arch[klucz]}
-        for t, sid in odczyt.get(klucz) or []:
-            c = czas_zdarzenia(t)
+        for czas_s, sid in odczyt.get(klucz) or []:
+            c = czas_zdarzenia(czas_s)
             if c:
                 zdarzenia.add((c.isoformat(), sid))
         arch[klucz] = sorted(zdarzenia)
@@ -226,25 +225,26 @@ def odczytaj_zrodlo(zrodlo: dict, katalog: pathlib.Path, limit_s: int = 300):
         try:
             r = subprocess.run(polecenie, input=skrypt, capture_output=True, timeout=zrodlo.get("limit_s", limit_s))
         except (OSError, subprocess.TimeoutExpired) as e:
-            return None, f"polecenie nie zadziałało: {e}"
+            return None, t("zr_polecenie_blad", blad=e)
         if r.returncode != 0:
-            return None, f"polecenie zwróciło {r.returncode}: " + r.stderr.decode("utf-8", "replace").strip()[:200]
+            return None, t("zr_polecenie_kod", kod=r.returncode,
+                           blad=r.stderr.decode("utf-8", "replace").strip()[:200])
         try:
-            return json.loads(r.stdout.decode("utf-8")), "odczyt poleceniem"
+            return json.loads(r.stdout.decode("utf-8")), t("zr_polecenie_ok")
         except ValueError:
-            return None, "polecenie nie zwróciło JSON-a: " + r.stdout[:120].decode("utf-8", "replace")
+            return None, t("zr_nie_json", wyjscie=r.stdout[:120].decode("utf-8", "replace"))
     if zrodlo.get("plik"):
         p = pathlib.Path(zrodlo["plik"]).expanduser()
         p = p if p.is_absolute() else katalog / p
         try:
             dane = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
-            return None, f"nie da się odczytać pliku `{p}`: {e}"
+            return None, t("zr_plik_blad", plik=p, blad=e)
         kiedy = (dane.get("meta") or {}).get("odczyt_utc") or (dane.get("meta") or {}).get("read_at_utc")
         if not kiedy:
             kiedy = dt.datetime.fromtimestamp(p.stat().st_mtime).astimezone().isoformat(timespec="minutes")
-        return dane, f"plik `{p.name}` z {kiedy[:16]}"
-    return None, "brak pola `polecenie` ani `plik`"
+        return dane, t("zr_plik_ok", plik=p.name, kiedy=kiedy[:16])
+    return None, t("zr_brak_pol")
 
 
 def aktualizuj_archiwum(plik: pathlib.Path, sesje: list) -> dict:
@@ -291,7 +291,7 @@ def wiersze_tygodni(arch: dict, cennik: dict, dzis: dt.date = None, zrodlo: str 
     wywolania = [w for w in (z_rekordu(r) for r in arch.get("calls", {}).values()) if w["czas"]]
     if not wywolania:
         return []
-    zdarzenia = lambda klucz: [c for c in (czas_zdarzenia(t) for t, _ in arch.get(klucz, [])) if c]  # noqa: E731
+    zdarzenia = lambda klucz: [c for c in (czas_zdarzenia(napis) for napis, _ in arch.get(klucz, [])) if c]  # noqa: E731
     wlasciciel = collections.Counter(poniedzialek(c) for c in zdarzenia("owner"))
     kompakty = collections.Counter(poniedzialek(c) for c in zdarzenia("compacts"))
     for w in wywolania:
@@ -342,9 +342,9 @@ def wiersze_tygodni(arch: dict, cennik: dict, dzis: dt.date = None, zrodlo: str 
         udzial = lambda x: round(100 * x / koszt, 1) if koszt else ""  # noqa: E731
         uwagi = []
         if tydzien + dt.timedelta(days=6) >= dzis:
-            uwagi.append("okres niezakończony")
+            uwagi.append(t("pokr_niezakonczony"))
         if not lista:
-            uwagi.append("brak aktywności")
+            uwagi.append(t("pokr_brak"))
         wiersze.append({
             "tydzien": tydzien.isoformat(), "zrodlo": zrodlo,
             "dni_z_sesjami": len({w["czas"].date() for w in glowne}),
@@ -396,15 +396,15 @@ def zapisz_trend(plik: pathlib.Path, nowe: list) -> list:
         except ValueError:
             zostaw = False
         if zostaw:
-            if "z poprzedniego przebiegu" not in (stary.get("pokrycie") or ""):
-                stary["pokrycie"] = "; ".join(x for x in (stary.get("pokrycie"), "wiersz z poprzedniego przebiegu "
-                                              f"(teraz {w['wywolania_api']} wywołań, reszta usunięta przez retencję)") if x)
+            if not any(u.split("(")[0] in (stary.get("pokrycie") or "") for u in teksty.wszystkie("pokr_poprzedni")):
+                stary["pokrycie"] = "; ".join(x for x in (stary.get("pokrycie"),
+                                                          t("pokr_poprzedni", n=w["wywolania_api"])) if x)
             stary["zrodlo"] = stary.get("zrodlo") or ZRODLO
         else:
             nowy = dict(stary or {}, **w)
             # własne uwagi skryptu są liczone od nowa; cudze (np. dopisane ręcznie) zostają
             cudze = [u for u in ((stary or {}).get("pokrycie") or "").split("; ")
-                     if u and not u.startswith(("okres niezakończony", "brak aktywności"))]
+                     if u and u not in teksty.wszystkie("pokr_niezakonczony") + teksty.wszystkie("pokr_brak")]
             nowy["pokrycie"] = "; ".join(cudze + [u for u in (w.get("pokrycie") or "").split("; ") if u and u not in cudze])
             wiersze[klucz(w)] = nowy
     wynik = sorted(list(wiersze.values()) + obce, key=lambda w: (*klucz(w), w.get("okno_od") or ""))
@@ -431,21 +431,22 @@ def trend(wiersze: list, zrodlo: str = ZRODLO, dzis: dt.date = None) -> list:
                       and dt.date.fromisoformat(w["tydzien"]) + dt.timedelta(days=6) < dzis
                       and (liczba(w.get("wywolania_api")) or 0) > 0), key=lambda w: w["tydzien"])
     wynik = []
-    for kol, etykieta in WSKAZNIKI_TRENDU:
+    for kol in WSKAZNIKI_TRENDU:
+        etykieta = t("wsk_" + kol)
         wartosci = [(w["tydzien"], liczba(w.get(kol))) for w in aktywne]
-        wartosci = [(t, v) for t, v in wartosci if v is not None]
+        wartosci = [(tydz, v) for tydz, v in wartosci if v is not None]
         ostatnie = wartosci[-OSTATNIE_TYGODNIE:]
         wczesniej = wartosci[:-OSTATNIE_TYGODNIE][-WCZESNIEJSZE_TYGODNIE:]
         m_ost = statistics.median(v for _, v in ostatnie) if ostatnie else None
         m_wcz = statistics.median(v for _, v in wczesniej) if wczesniej else None
         if m_ost is None or m_wcz is None or len(wczesniej) < 3:
-            kierunek = "za mało danych"
+            kierunek = t("kier_malo")
         elif m_wcz == 0:
-            kierunek = "↑ pogorszenie" if m_ost > 0 else "≈"
+            kierunek = t("kier_gorzej") if m_ost > 0 else "≈"
         elif m_ost > m_wcz * (1 + PROG_ZMIANY):
-            kierunek = "↑ pogorszenie"
+            kierunek = t("kier_gorzej")
         elif m_ost < m_wcz * (1 - PROG_ZMIANY):
-            kierunek = "↓ poprawa"
+            kierunek = t("kier_lepiej")
         else:
             kierunek = "≈"
         wynik.append((etykieta, m_wcz, ostatnie, m_ost, kierunek, len(wczesniej)))

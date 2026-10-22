@@ -6,7 +6,7 @@ tutaj są tylko wyniki i stan między retro. Retro uruchamia `/retro` (pełna na
 
 | plik | rola |
 |---|---|
-| `konfiguracja.json` | tryb, kalendarz, próg przypomnienia, poprawki nazw projektów (opis pól w pluginie: `references/konfiguracja.md`) |
+| `konfiguracja.json` | tryb, język, kalendarz, próg przypomnienia, poprawki nazw projektów (opis pól w pluginie: `references/konfiguracja.md`) |
 | `zobowiazania.md` | rejestr zobowiązań: kręgosłup ciągłości między retro |
 | `retro/RNN-RRRR-MM-DD.md` | kolejne retro; `**Status:** zakończone` resetuje licznik przypomnienia |
 | `metryki.csv` | metryki trendu, wiersz na retro |

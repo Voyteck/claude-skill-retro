@@ -1,5 +1,5 @@
 {
-  "description": "Przypomnienie o zaległym retro przy starcie nowej sesji (milczy, gdy retro nie jest założone).",
+  "description": "Reminder about an overdue retro at the start of a new session (silent when no retro is set up).",
   "hooks": {
     "SessionStart": [
       {
