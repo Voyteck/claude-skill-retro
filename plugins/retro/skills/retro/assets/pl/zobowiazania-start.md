@@ -1,7 +1,7 @@
 # Rejestr zobowiązań
 
 Każde retro zaczyna się od rozliczenia tego rejestru. Zobowiązanie trafia tu dopiero po akceptacji
-użytkownika. Zasady statusów i limitów: skill `retro` (plugin `retro`), `SKILL.md`, krok 3 i „Zasady stałe”.
+użytkownika. Zasady statusów i limitów: skill `retro` (plugin `retro`), `SKILL.md`, sekcje „Step 3” i „Standing rules”.
 
 **Statusy:** aktywne · utrwalone (przestrzegane w 3 kolejnych retro, nie śledzimy) · zmienione → Z-NNN · porzucone
 **Limity:** najwyżej 5 nowych na retro; przy ponad 10 aktywnych retro proponuje utrwalenie albo porzucenie.

@@ -14,6 +14,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import wspolne  # noqa: E402
+from teksty import t, ustaw  # noqa: E402
 
 
 def main() -> None:
@@ -30,21 +31,22 @@ def main() -> None:
     if katalog is None:
         return
     konf = wspolne.wczytaj_konfiguracje(katalog)
+    ustaw(konf)
     prog = int(konf.get("prog_przypomnienia_dni_roboczych", 5))
 
     ostatnie = wspolne.ostatnie_retro(katalog / "retro")
     if ostatnie:
         numer, data, _ = ostatnie
         zalegle = wspolne.dni_robocze_po(data, dzis, konf)
-        opis = f"ostatnie retro R{numer:02d} zakończone {data.isoformat()}, {zalegle} dni roboczych temu"
+        opis = t("przyp_ostatnie", numer=numer, data=data.isoformat(), dni=zalegle)
     else:
         zalegle = 10 ** 6
-        opis = "nie ma jeszcze żadnego zakończonego retro"
+        opis = t("przyp_zadnego")
     if zalegle < prog:
         return
 
-    gdzie = "w tym projekcie" if tryb == "projekt" else f"w sesji w {katalog}"
-    wynik = {"systemMessage": f"Retro zaległe: {opis}. Uruchom {wspolne.POLECENIE} ({gdzie})."}
+    gdzie = t("przyp_w_projekcie") if tryb == "projekt" else t("przyp_w_katalogu", katalog=katalog)
+    wynik = {"systemMessage": t("przyp_komunikat", opis=opis, polecenie=wspolne.POLECENIE, gdzie=gdzie)}
 
     plik_stempla = katalog / "dane" / "przypomnienie-ostatnie.txt"
     juz_dzis = False
@@ -61,13 +63,7 @@ def main() -> None:
     if not juz_dzis and not w_sesji_retro:
         wynik["hookSpecificOutput"] = {
             "hookEventName": "SessionStart",
-            "additionalContext": (
-                f"Przypomnienie o retrospektywie (skill retro): {opis} (próg {prog} dni roboczych). "
-                "Nie przerywaj zadania użytkownika. Na końcu pierwszej odpowiedzi w tej sesji zapytaj go "
-                "(AskUserQuestion, jeśli jest dostępne), czy robimy retro: „Dziś, w osobnej sesji (rekomendowane)” "
-                f"({gdzie}, polecenie {wspolne.POLECENIE}, ok. 20–40 min), „Jutro”, „Pomiń tym razem”. "
-                "Samego retro nie uruchamiaj bez jego zgody."
-            ),
+            "additionalContext": t("przyp_kontekst", opis=opis, prog=prog, gdzie=gdzie, polecenie=wspolne.POLECENIE),
         }
         try:
             plik_stempla.parent.mkdir(parents=True, exist_ok=True)

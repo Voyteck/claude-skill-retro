@@ -1,152 +1,165 @@
-# Sygnały i metryki: co znaczą i czego nie mówią
+# Signals and metrics: what they mean and what they do not say
 
-`scripts/sygnaly.py` czyta transkrypcje Claude Code z okna retro, gita i (gdy jest `gh`) GitHuba.
+`scripts/sygnaly.py` reads Claude Code transcripts from the retro window, git and (when `gh` is available)
+GitHub. Reports (`podsumowanie.md`, timelines) are written in the configured language (`jezyk`: `pl` in Polish,
+anything else in English); metric names and CSV columns are the same in every language.
 
-## Okno
+## Window
 
-Okno zaczyna się od **godziny commita**, którym poprzednie retro dostało `**Status:** zakończone` (szuka go w gicie
-katalogu roboczego, gdy `--od` to dzień zakończenia tamtego retro). Wiadomości, pytania i błędy z sesji tamtego retro
-sprzed commita nie zawyżają więc nowego okna (w R02 zawyżały `pytania` 52 zamiast 24). To samo okno obowiązuje
-commity, PR-y, CI i tokeny. `--od RRRR-MM-DDTGG:MM` podaje godzinę wprost, `--od-poczatku-dnia` liczy od północy.
-Retro niezacommitowane albo spoza gita: okno od północy (podsumowanie podaje, skąd wziął się początek).
+The window starts at the **time of the commit** that gave the previous retro its completed status (`**Status:**
+zakończone` / `completed`; also accepted: `zakonczone`, `done`, `closed`). The script looks for that commit in the
+working directory's git when `--od` is the day that retro was completed. Messages, questions and errors from that
+retro's own session before the commit therefore do not inflate the new window (without this, a retro session can
+easily double the question count of the next window). The same window applies to commits, PRs, CI and tokens.
+`--od YYYY-MM-DDTHH:MM` gives the time explicitly, `--od-poczatku-dnia` counts from midnight. A retro that is not
+committed or lives outside git: window from midnight (the summary says where the start came from).
 
-## Klasy odpowiedzi na pytania (AskUserQuestion)
+## Answer classes for questions (AskUserQuestion)
 
-| klasa | znaczenie |
+| class | meaning |
 |---|---|
-| `rekomendowana` | wybrano opcję oznaczoną jako rekomendowana („(rekomendowane)”, „Rekomendacja”, „zalecam”, „Recommended”) |
-| `inna` | wybrano inną opcję z listy |
-| `wlasna` | użytkownik wpisał własną odpowiedź spoza opcji: często korekta kierunku, czytaj w osi czasu |
-| `odlozone` | pytanie zamknięte bez odpowiedzi („[User dismissed …]”) |
-| `bez_wyboru` | odpowiedź „[No preference]” |
-| `fakt` | pytanie z „[fakt]” w treści: o fakt znany tylko użytkownikowi (np. „w jakiej sieci jesteś?”); odpowiedź, także własnym tekstem, nie jest korektą |
-| `bez_rekomendacji` | pytanie nie miało oznaczonej opcji rekomendowanej (od 0.1.3 bez pytań „[fakt]”) |
+| `rekomendowana` | the option marked as recommended was chosen; the mark is recognized in many languages (rekomendowane, zalecane, recommended, recomendado, recommandé, empfohlen, raccomandato, aanbevolen, …) unless negated |
+| `inna` | another option from the list was chosen |
+| `wlasna` | the user typed their own answer outside the options: often a change of direction, read it in the timeline |
+| `odlozone` | the question was closed without an answer ("[User dismissed …]") |
+| `bez_wyboru` | the answer "[No preference]" |
+| `fakt` | a question with `[fact]` or `[fakt]` in its text: about a fact only the user knows (e.g. "which network are you on?"); the answer, even as own text, is not a correction |
+| `bez_rekomendacji` | the question had no option marked as recommended (fact questions excluded since 0.1.3) |
 
-Odsetek `rekomendowana` mówi, jak dobrze Claude przewiduje decyzje użytkownika. `wlasna` i `odlozone` to
-najciekawsze miejsca do przeczytania w osi czasu.
+The share of `rekomendowana` shows how well Claude predicts the user's decisions. `wlasna` and `odlozone` are the
+most interesting places to read in the timeline.
 
-## Metryki (`metryki.json`, kolumny `metryki.csv`)
+## Metrics (`metryki.json`, `metryki.csv` columns)
 
-| metryka | skąd | uwaga |
+| metric | source | note |
 |---|---|---|
-| `wiad_wlasciciela` | wiadomości wpisane przez użytkownika | bez poleceń `/…`, powiadomień i wiadomości między sesjami; razem z wysłanymi w trakcie pracy Claude'a (rekordy `queued_command`, w osi czasu „w trakcie pracy Claude'a”) |
-| `wiad_mozliwa_korekta` | słowa typu „nie”, „dlaczego”, „znowu” | heurystyka z dużym szumem; tylko trend |
-| `wiad_po_20` | wiadomości poza godzinami pracy (`godziny_pracy`) | |
-| `pytania`, `pyt_*` | odpowiedzi na AskUserQuestion | patrz klasy wyżej |
-| `przerwania` | „Request interrupted by user” | liczone tylko, gdy transkrypcja zapisała ten znacznik |
-| `blokady_klasyfikatora` | odmowy klasyfikatora trybu auto (sesje i podagenci) | |
-| `odmowy_wlasciciela` | odrzucone prośby o zgodę na narzędzie | |
-| `bledy_narzedzi` | wyniki narzędzi z błędem | najczęstsze w osi czasu projektu |
-| `kompakty` | kompakty kontekstu | |
-| `podagenci` | wywołania Agent/Task | osobno: model zadany i faktyczny (z transkrypcji podagenta) |
+| `wiad_wlasciciela` | messages typed by the user | without `/…` commands, notifications and messages between sessions; including those sent while Claude was working (`queued_command` records, marked as such in the timeline) |
+| `wiad_mozliwa_korekta` | words like "no", "why", "again" (Polish and English lists) | a heuristic with a lot of noise; trend only. Marked `[K?]` (pl) / `[C?]` (en) in timelines |
+| `wiad_po_20` | messages outside working hours (`godziny_pracy`) | |
+| `pytania`, `pyt_*` | answers to AskUserQuestion | see the classes above |
+| `przerwania` | "Request interrupted by user" | counted only when the transcript recorded this marker |
+| `blokady_klasyfikatora` | refusals by the auto mode classifier (sessions and subagents) | |
+| `odmowy_wlasciciela` | rejected requests for tool permission | |
+| `bledy_narzedzi` | tool results with an error | the most frequent ones in the project timeline |
+| `kompakty` | context compactions | |
+| `podagenci` | Agent/Task calls | separately: requested and actual model (from the subagent's transcript) |
 | `wiad_miedzy_sesjami` | SendMessage | |
-| `commity`, `pr_*`, `ci_*` | git (wszystkie gałęzie) i `gh` | commity/PR liczone z 40 ostatnio scalonych PR (limit GraphQL) |
-| `claude_md_linie` | suma linii plików reguł: `~/.claude/CLAUDE.md`, śledzone `CLAUDE.md` na dowolnej głębokości repo, `CLAUDE.local.md`, `pliki_regul_dodatkowe`; bez katalogów z `katalogi_regul_osobno` | rośnie = puchnięcie reguł; liczone z dysku, więc przy checkoucie w tyle za zdalną (kolumna „za zdalną”) nieaktualne |
-| `pamiec_pliki` | pliki pamięci projektów | |
+| `commity`, `pr_*`, `ci_*` | git (all branches) and `gh` | commits/PRs counted from the 40 most recently merged PRs (GraphQL limit) |
+| `claude_md_linie` | total lines of rules files: `~/.claude/CLAUDE.md`, tracked `CLAUDE.md` at any depth of the repo, `CLAUDE.local.md`, `pliki_regul_dodatkowe`; without directories from `katalogi_regul_osobno` | growing = rules bloat; counted from disk, so out of date when the checkout is behind its remote (column "behind remote") |
+| `pamiec_pliki` | project memory files | |
 
-Kolumny od 0.1.3 (w `metryki.csv` na końcu, za `zobowiazania_aktywne`; starsze wiersze mają je puste):
+Columns since 0.1.3 (in `metryki.csv` at the end, after `zobowiazania_aktywne`; older rows have them empty):
 
-| metryka | skąd | uwaga |
+| metric | source | note |
 |---|---|---|
-| `okno_od_godzina` | początek okna (patrz „Okno”) | `00:00` = od północy |
-| `pyt_fakt`, `pyt_bez_wyboru` | klasy odpowiedzi | `pyt_bez_wyboru` była w `metryki.json` od 0.1.0, w CSV od 0.1.3 |
-| `wywolania_api` | unikalne `message.id` w oknie, sesje i podagenci | patrz „Tokeny i koszt” |
-| `koszt_api_usd` | tokeny × ceny API z `references/cennik.json` | miara względna, dolne oszacowanie |
-| `koszt_na_wiadomosc_usd` | `koszt_api_usd` / `wiad_wlasciciela` | porównywalne między retro, gdy cennik ten sam |
-| `kontekst_mediana` | mediana kontekstu (wejście + zapis + odczyt cache) wywołań sesji głównych | rozmiar kontekstu × liczba wywołań to główny koszt |
-| `kontekst_ponad_200k_proc` | odsetek wywołań sesji głównych z kontekstem > 200k | |
-| `kontekst_startowy_mediana` | mediana kontekstu pierwszego wywołania sesji zaczętych w oknie | stały narzut: prompt systemowy, narzędzia, skille, MCP, CLAUDE.md, pamięć; sesja z kopiami wywołań innej (rozwidlenie) nie wchodzi |
-| `podagenci_koszt_proc` | udział podagentów w koszcie | |
-| `podagenci_opus_koszt_proc` | udział Opusa w koszcie podagentów | liczenie podagentów po sztukach myli: w R02 Opus to 23% podagentów, ale 89% ich kosztu |
-| `wybudzenia`, `wybudzenia_koszt_usd` | wywołania sesji głównej z zapisem cache > 50k po przerwie > 1 h od jej poprzedniego wywołania; koszt samego zapisu | zwykle pytanie zamykające („czy mogę archiwizować?”) do długiej sesji; lista w podsumowaniu |
-| `commity_bez_sesji`, `pr_bez_sesji` | commity (czas commitera) i otwarte PR-y bez zapisu lokalnej transkrypcji sesji tego repo w odstępie ±30 min | praca w sandboksie, chmurze, na innej maszynie, scalenia na GitHubie; podsumowanie ostrzega, gdy to ≥ 20% (i ≥ 3 commity albo ≥ 2 PR) |
-| `claude_md_linie_osobno` | linie plików reguł w `katalogi_regul_osobno` | np. kopie `CLAUDE.md` dla przyszłych repozytoriów (`repo-roots/` w childproxy) |
+| `okno_od_godzina` | window start (see "Window") | `00:00` = from midnight |
+| `pyt_fakt`, `pyt_bez_wyboru` | answer classes | `pyt_bez_wyboru` was in `metryki.json` since 0.1.0, in the CSV since 0.1.3 |
+| `wywolania_api` | unique `message.id` in the window, sessions and subagents | see "Tokens and cost" |
+| `koszt_api_usd` | tokens × API prices from `references/cennik.json` | relative measure, lower bound |
+| `koszt_na_wiadomosc_usd` | `koszt_api_usd` / `wiad_wlasciciela` | comparable between retros when the price list is the same |
+| `kontekst_mediana` | median context (input + cache write + cache read) of main-session calls | context size × number of calls is the main cost |
+| `kontekst_ponad_200k_proc` | share of main-session calls with context > 200k | |
+| `kontekst_startowy_mediana` | median context of the first call of sessions started in the window | fixed overhead: system prompt, tools, skills, MCP, CLAUDE.md, memory; a session with copies of another session's calls (fork) is excluded |
+| `podagenci_koszt_proc` | subagents' share of the cost | |
+| `podagenci_opus_koszt_proc` | Opus's share of the subagents' cost | counting subagents by number misleads: Opus is often a minority of subagent calls and the majority of their cost |
+| `wybudzenia`, `wybudzenia_koszt_usd` | main-session calls with a cache write > 50k after a break > 1 h since its previous call; cost of the write alone | usually a closing question ("can I archive?") to a long session; listed in the summary |
+| `commity_bez_sesji`, `pr_bez_sesji` | commits (committer time) and opened PRs without a local transcript of a session in that repo within ±30 min | work in a sandbox, cloud, another machine, merges on GitHub; the summary warns when it is ≥ 20% (and ≥ 3 commits or ≥ 2 PRs) |
+| `claude_md_linie_osobno` | lines of rules files in `katalogi_regul_osobno` | e.g. copies of `CLAUDE.md` kept in one repo for future repositories |
 
-## Tokeny i koszt
+## Tokens and cost
 
-- **Wywołanie API** = unikalny `message.id`. Claude Code zapisuje jedno wywołanie w kilku rekordach (po jednym na
-  blok treści), w trakcie strumienia z częściowym `usage`: liczony jest rekord z największym `output_tokens`
-  i najwcześniejszym czasem. Ten sam `message.id` w dwóch sesjach (kopia po rozwidleniu) liczy się raz, w sesji
-  starszej. Transkrypcje podagentów (`<sesja>/subagents/agent-*.jsonl`) wchodzą do kosztu sesji, która je uruchomiła.
-- **Koszt w cenach API** z `references/cennik.json` (wejście, wyjście, zapis cache 5 min i 1 h, odczyt cache;
-  Haiku 5.5 drożej powyżej 100k kontekstu; tryb fast × 2; web search za zapytanie). Model dopasowany po najdłuższym
-  przedrostku identyfikatora, `[1m]` pomijane. Nowy model albo zmiana cen: pole `cennik` w `konfiguracja.json`
-  (ten sam kształt) albo aktualizacja pliku w repo pluginu. Modele bez ceny nie wchodzą do kosztu; podsumowanie je
-  wymienia.
-- **To miara względna, nie rachunek.** Na subskrypcji realnym ograniczeniem jest limit (5-godzinny i tygodniowy),
-  a nie kwota. Kwoty porównuj między retro, nie z fakturą. Zmiana cennika (np. tańszy nowy model) zmienia koszt bez
-  zmiany sposobu pracy: przy porównaniu z retro na innym modelu sprawdź „koszt wg modelu” w podsumowaniu.
-- **Dolne oszacowanie.** Wywołania, których nie ma w transkrypcjach (klasyfikator trybu auto, tytuły sesji,
-  podsumowania), nie są liczone; w R03 różnica wobec `cost-state` Claude Code wynosiła 0–15%.
-- **Tylko lokalnie.** Sandbox, chmura i inne maszyny nie mają tu transkrypcji: koszt na commit albo PR w repo
-  z dużym `commity_bez_sesji` nie ma sensu.
-- **Wybudzenie** liczy przerwę między wywołaniami sesji głównej; długi podagent (> 1 h) też ją tworzy.
+- **API call** = a unique `message.id`. Claude Code writes one call in several records (one per content block),
+  with partial `usage` while streaming: the record with the largest `output_tokens` and the earliest time is
+  counted. The same `message.id` in two sessions (a copy after a fork) is counted once, in the older session.
+  Subagent transcripts (`<session>/subagents/agent-*.jsonl`) count towards the cost of the session that started
+  them.
+- **Cost at API prices** from `references/cennik.json` (input, output, cache write 5 min and 1 h, cache read;
+  Haiku 5.5 more expensive above 100k context; fast mode × 2; web search per query). The model is matched by the
+  longest identifier prefix, `[1m]` is ignored. A new model or a price change: the `cennik` field in
+  `konfiguracja.json` (same shape) or an update of the file in the plugin repo. Models without a price are not
+  included in the cost; the summary lists them.
+- **A relative measure, not a bill.** On a subscription the real limit is the usage limit (5-hour and weekly),
+  not an amount. Compare amounts between retros, not with an invoice. A price list change (e.g. a cheaper new
+  model) changes the cost without any change in how you work: when comparing with a retro on another model, check
+  "cost by model" in the summary.
+- **Lower bound.** Calls that are not in the transcripts (auto mode classifier, session titles, summaries) are
+  not counted; in tests the difference against Claude Code's `cost-state` was up to ~15%.
+- **Local only.** Sandbox, cloud and other machines have no transcripts here: cost per commit or PR in a repo
+  with a large `commity_bez_sesji` makes no sense.
+- **A wake-up** counts the break between main-session calls; a long subagent (> 1 h) creates one too.
 
-## Trend tygodniowy (`tokeny-tydzien.csv`)
+## Weekly trend (`tokeny-tydzien.csv`)
 
-Przy każdym przebiegu (bez `--projekt` i `--bez-trendu`) `sygnaly.py` czyta całą historię transkrypcji w zakresie
-retro, dopisuje same liczby do archiwum `dane/tokeny-archiwum.json` (wywołania z `usage`, czasy wiadomości
-właściciela i kompaktów, `cost-state`; bez treści rozmów) i z archiwum liczy wiersz na każdy tydzień (poniedziałek,
-czas lokalny) do `tokeny-tydzien.csv` w katalogu roboczym. Archiwum chroni historię przed `cleanupPeriodDays`:
-transkrypcja usunięta po 30 dniach zostaje w archiwum, jeśli skrypt zdążył ją przeczytać.
+On every run (without `--projekt` and `--bez-trendu`) `sygnaly.py` reads the whole transcript history in the
+retro's scope, appends numbers only to the archive `dane/tokeny-archiwum.json` (calls with `usage`, times of the
+user's messages and compactions, `cost-state`; no conversation content) and computes from the archive one row per
+week (Monday, local time) in `tokeny-tydzien.csv` in the working directory. The archive protects the history
+against `cleanupPeriodDays`: a transcript deleted after 30 days stays in the archive if the script read it in
+time.
 
-- **Klucz wiersza:** (`tydzien`, `zrodlo`). Skrypt pisze `zrodlo=lokalne` i wiersze źródeł zdalnych
-  z konfiguracji (`zrodlo=<nazwa>`, niżej). Wiersze innych źródeł (np. pomiary ręczne, także po kilka na tydzień)
-  zostają dosłownie, a nieznane kolumny i uwagi w `pokrycie` dopisane ręcznie zostają też w wierszach skryptu.
-  Wiersz bez `zrodlo` jest traktowany jako lokalny.
-- **Bez duplikatów:** tydzień jest nadpisywany przy każdym przebiegu (także niepełny, oznaczony „okres
-  niezakończony”), chyba że wiersz w pliku widział więcej wywołań; wtedy zostaje stary z uwagą w `pokrycie`
-  (dane sprzed archiwum usunięte przez retencję).
-- **Źródła zdalne** (`zrodla_zdalne` w konfiguracji, domyślnie brak): druga maszyna, na której też działa Claude
-  Code (sandbox, serwer). Dla każdego źródła skrypt robi **jedną** próbę odczytu, bez ponawiania:
-  - `polecenie`: lista argumentów (albo napis), np. `["ssh", "-T", "host", "python3 -"]` albo z `docker exec -i
-    <kontener> python3 -` w napisie dla ssh. Skrypt podaje na stdin `scripts/zbierz_liczby.py`, który na tamtej
-    maszynie czyta `~/.claude/projects` i wypisuje same liczby (bez treści rozmów); niczego tam nie zapisuje.
-  - `plik`: wynik `zbierz_liczby.py` zapisany wcześniej (ścieżka względna wobec katalogu roboczego albo
-    bezwzględna), gdy połączenie robi właściciel sam:
-    `ssh -T <host> python3 - < <skill>/scripts/zbierz_liczby.py > <katalog roboczy>/dane/<nazwa>-liczby.json`.
-  - `wlaczone: false` wyłącza źródło, `limit_s` zmienia limit czasu (domyślnie 300 s); `--bez-zdalnych` pomija
-    wszystkie przy jednym przebiegu.
+- **Row key:** (`tydzien`, `zrodlo`). The script writes `zrodlo=lokalne` (local) and rows of remote sources from
+  the configuration (`zrodlo=<name>`, below). Rows of other sources (e.g. manual measurements, also several per
+  week) stay verbatim, and unknown columns and notes added by hand in `pokrycie` stay in the script's rows too. A
+  row without `zrodlo` is treated as local.
+- **No duplicates:** a week is overwritten on every run (also an incomplete one, marked "period not finished"),
+  unless the row in the file saw more calls; then the old one stays with a note in `pokrycie` (data from before
+  the archive, deleted by retention).
+- **Remote sources** (`zrodla_zdalne` in the configuration, none by default): a second machine that also runs
+  Claude Code (sandbox, server). For each source the script makes **one** read attempt, without retrying:
+  - `polecenie`: a list of arguments (or a string), e.g. `["ssh", "-T", "host", "python3 -"]` or with
+    `docker exec -i <container> python3 -` inside the ssh string. The script feeds `scripts/zbierz_liczby.py` on
+    stdin; on that machine it reads `~/.claude/projects` and prints numbers only (no conversation content); it
+    writes nothing there.
+  - `plik`: the output of `zbierz_liczby.py` saved earlier (path relative to the working directory or absolute),
+    when the user makes the connection themselves:
+    `ssh -T <host> python3 - < <skill>/scripts/zbierz_liczby.py > <working dir>/dane/<name>-liczby.json`
+    (in PowerShell, which has no `<`: `cmd /c 'ssh -T <host> python3 - < <script> > <output>'`).
+  - `wlaczone: false` disables the source, `limit_s` changes the time limit (300 s by default); `--bez-zdalnych`
+    skips all of them for one run.
 
-  Odczyt trafia do osobnego archiwum `dane/tokeny-archiwum-<nazwa>.json` (ten sam format, plus lista `odczyty`
-  z metadanymi każdego odczytu) i do wierszy `zrodlo=<nazwa>`. Gdy odczyt się nie uda, podsumowanie mówi dlaczego,
-  a trend źródła liczy się z archiwum bez nowych danych. Czas zdalnych zdarzeń przychodzi w UTC i jest zamieniany
-  na czas lokalny tej maszyny.
-- **Kolumny** jak w metrykach okna, ale na tydzień: `koszt_api_usd`, `koszt_api_usd_ceny_55` (Opus/Sonnet/Haiku
-  po cenach modeli z `rodziny_biezace` cennika, żeby zmiana cennika nie udawała zmiany sposobu pracy),
-  `koszt_na_wiad`, `wywolania_na_wiad`, `kontekst_mediana`, `kontekst_p90`, `proc_wywolan_ponad_200k`, udziały
-  odczytu i zapisu cache w koszcie, `wybudzenia` z kosztem, udział podagentów i Opusa, `kontekst_startowy_mediana`
-  (bez sesji `claude -p`), `kompakty`, kontrola `koszt_cost_state_usd` wobec `koszt_policzony_tych_sesji` (sesje
-  przypisane do tygodnia ostatniego wywołania). Kolumny `*_sygnaly` i `pokrycie_wiad_proc` są na porównanie
-  z wcześniejszymi wyciągami; skrypt ich nie liczy i nie zmienia.
-- **Trend w podsumowaniu:** ostatnie 4 zakończone tygodnie z aktywnością wobec mediany 8 wcześniejszych, osobno dla
-  każdego źródła. Mediana ostatnich wyższa o ponad 20% = **↑ pogorszenie**, niższa = ↓ poprawa; przy mniej niż
-  3 wcześniejszych tygodniach „za mało danych”. Tygodnie z 1–2 sesjami są głośne: strzałka to wskazówka, dowodem
-  są sesje tego tygodnia.
-- **Wiadomości właściciela** w trendzie liczone jak w osiach czasu (bez poleceń `/…`, powiadomień, wiadomości
-  i briefów innych sesji, promptów `claude -p`; sam zrzut ekranu jest wiadomością).
+  A read goes into a separate archive `dane/tokeny-archiwum-<name>.json` (same format, plus a list `odczyty` with
+  metadata of each read) and into rows `zrodlo=<name>`. When a read fails, the summary says why ("not read"), and
+  the source's trend is computed from the archive without new data. Times of remote events come in UTC and are
+  converted to this machine's local time.
+- **Columns** as in the window metrics, but per week: `koszt_api_usd`, `koszt_api_usd_ceny_55` (Opus/Sonnet/Haiku
+  at the prices of the models in the price list's `rodziny_biezace`, so that a price list change does not pose as
+  a change in how you work), `koszt_na_wiad`, `wywolania_na_wiad`, `kontekst_mediana`, `kontekst_p90`,
+  `proc_wywolan_ponad_200k`, shares of cache read and write in the cost, `wybudzenia` with their cost, share of
+  subagents and Opus, `kontekst_startowy_mediana` (without `claude -p` sessions), `kompakty`, the check
+  `koszt_cost_state_usd` against `koszt_policzony_tych_sesji` (sessions assigned to the week of their last call).
+  The columns `*_sygnaly` and `pokrycie_wiad_proc` are for comparison with earlier extracts; the script neither
+  computes nor changes them.
+- **Trend in the summary:** the last 4 completed weeks with activity against the median of the 8 earlier ones,
+  separately for each source. The recent median higher by more than 20% = **↑ worse** („↑ pogorszenie”), lower =
+  ↓ better; with fewer than 3 earlier weeks "not enough data". Weeks with 1–2 sessions are noisy: the arrow is a
+  hint, the evidence is that week's sessions.
+- **User's messages** in the trend are counted as in the timelines (without `/…` commands, notifications, messages
+  and briefs from other sessions, `claude -p` prompts; a screenshot alone is a message).
 
-## Ograniczenia
+## Limitations
 
-- **Tylko lokalne transkrypcje.** Sesje w chmurze (claude.ai/code) i na innych komputerach nie są widoczne.
-- **Retencja.** Claude Code kasuje transkrypcje sesji z terminala i VS Code starsze niż `cleanupPeriodDays`
-  (domyślnie 30 dni); sesje z aplikacji desktop nie podlegają temu czyszczeniu. Podsumowanie ostrzega, gdy okno
-  sięga dalej. `dane/` w katalogu roboczym jest archiwum wyciągów: po miesiącu to jedyny ślad starszych sesji.
-  Kto chce dłuższej historii, ustawia `cleanupPeriodDays` w `~/.claude/settings.json`.
-- **Sesje w scratchpadzie** (katalog roboczy `…/claude/…/scratchpad`, zwykle testy `claude -p`) są pomijane;
-  ich liczba jest w podsumowaniu.
-- **Zamazywanie sekretów to heurystyka.** Przed zapisem raportów znikają: wartość po `gh secret set … --body`,
-  wartość po nazwie zawierającej key/token/secret/pass/hasło/klucz (gdy ma litery i cyfry), `Bearer …`, klucze
-  o znanych przedrostkach (`sk-`, `ghp_`, `AKIA`, `AIza`, `hf_`, JWT), bloki kluczy prywatnych oraz ciągi ≥ 32
-  znaków z liter i cyfr. Zostają pełne hashe commitów (40 znaków szesnastkowych) i digesty `sha256:`. Hasło ze
-  zwykłych słów albo krótki kod przejdzie niezamazany; transkrypcje źródłowe nie są zmieniane.
-- **Projekty bez lokalnych sesji w oknie** (praca w chmurze albo na innej maszynie) nie mają osi czasu, a ich repo
-  i reguły nie są liczone. Podsumowanie wymienia te, które mają pamięć; repo dodaj w `repozytoria_dodatkowe`.
-  Gdy repo ma sesje, ale większość commitów powstała bez nich (`commity_bez_sesji`), podsumowanie ostrzega.
-  Transkrypcje skopiowane z innej maszyny (katalog `projects`) dołącza `transkrypcje_dodatkowe`; ścieżki `cwd`
-  z innej maszyny zwykle nie istnieją lokalnie, więc nazwy projektów popraw w `nazwy_projektow`.
-- **Commity a czas.** Okno commitów liczy git po dacie commitera (`--since`), a git przestaje przeglądać gałąź na
-  pierwszym commicie starszym niż początek okna: po rebase z datami nie po kolei część commitów może wypaść.
-- **Format transkrypcji** nie jest publicznym API Claude Code i może się zmienić. Gdy liczby nagle spadają do
-  zera, sprawdź skrypt na świeżej transkrypcji.
-- **GitHub** tylko przez `gh` zalogowane na konto z dostępem do repo; repo bez zdalnego jest liczone tylko z gita.
+- **Local transcripts only.** Cloud sessions (claude.ai/code) and other computers are not visible.
+- **Retention.** Claude Code deletes transcripts of terminal and VS Code sessions older than `cleanupPeriodDays`
+  (30 days by default); desktop app sessions are not subject to this cleanup. The summary warns when the window
+  reaches further. `dane/` in the working directory is an archive of extracts: after a month it is the only trace
+  of older sessions. For a longer history set `cleanupPeriodDays` in `~/.claude/settings.json`.
+- **Sessions in a scratchpad** (working directory `…/claude/…/scratchpad`, usually `claude -p` tests) are skipped;
+  their number is in the summary.
+- **Masking secrets is a heuristic.** Before reports are written, these disappear: the value after
+  `gh secret set … --body`, the value after a name containing key/token/secret/pass/hasło/klucz (when it has
+  letters and digits), `Bearer …`, keys with known prefixes (`sk-`, `ghp_`, `AKIA`, `AIza`, `hf_`, JWT), private key
+  blocks and strings of ≥ 32 letters and digits. Full commit hashes (40 hex characters) and `sha256:` digests stay.
+  A password made of ordinary words or a short code passes unmasked; the source transcripts are not changed.
+- **Projects without local sessions in the window** (cloud work or another machine) have no timeline, and their
+  repo and rules are not counted. The summary lists those that have memory; add the repo in
+  `repozytoria_dodatkowe`. When a repo has sessions but most commits were made without them
+  (`commity_bez_sesji`), the summary warns. Transcripts copied from another machine (a `projects` directory) are
+  added with `transkrypcje_dodatkowe`; `cwd` paths from another machine usually do not exist locally, so fix
+  project names in `nazwy_projektow`.
+- **Commits and time.** git selects commits for the window by committer date (`--since`), and stops walking a
+  branch at the first commit older than the window start: after a rebase with out-of-order dates some commits may
+  drop out.
+- **The transcript format** is not a public Claude Code API and may change. When numbers suddenly drop to zero,
+  check the script against a fresh transcript.
+- **GitHub** only through `gh` logged in to an account with access to the repo; a repo without a remote is counted
+  from git only.

@@ -1,5 +1,27 @@
 # Zmiany
 
+## 0.2.0 · 2026-10-22
+
+Wielojęzyczność: plugin nadaje się dla osób, które nie piszą po polsku.
+
+- **Pole `jezyk`** w `konfiguracja.json` (`pl`, `en`; inne kody: szablony i komunikaty skryptów po angielsku,
+  Claude pisze w danym języku). Brak pola = `pl`, więc katalogi sprzed 0.2.0 działają bez zmian.
+  `zaloz.py --jezyk KOD` (domyślnie `en`); retro zero pyta o język jako pierwsze.
+- **Szablony** w `assets/pl/` i `assets/en/` (te same nazwy plików); `metryki-naglowek.csv` zostaje w `assets/`.
+- **Raporty skryptów** (podsumowanie, osie czasu, przypomnienie) w języku z konfiguracji; teksty w nowym
+  `scripts/teksty.py` (nowy język = kod w `JEZYKI` i tłumaczenia; test pilnuje kompletności).
+- **„Możliwa korekta”** liczona słowami języka z konfiguracji plus angielskimi (lista angielska rozszerzona
+  o „wait”, „not what”, „I said”, „I asked”, „you forgot”). Przy `jezyk=en` polskie słowa nie są liczone.
+- **`wiad_po_20`** liczone z pory dnia, nie z polskiej etykiety „noc”.
+- **Statusy i znaczniki niezależne od języka:** retro zakończone to `zakończone`, `zakonczone`, `completed`, `done`
+  albo `closed`; pytanie o fakt to `[fakt]` albo `[fact]`.
+- **Opcja rekomendowana** rozpoznawana w wielu językach (m.in. rekomendowane, recommended, recomendado, recommandé,
+  empfohlen, raccomandato, aanbevolen).
+- **Dokumentacja po angielsku:** `SKILL.md`, `references/`, `README.md`; polska wersja README w `README.pl.md`.
+  Identyfikatory (nazwy plików, klucze konfiguracji, kolumny CSV, argumenty) zostają polskie; słowniczek
+  w `references/konfiguracja.md`.
+- Usunięte odniesienia do projektów i retro autora z dokumentacji skillu.
+
 ## 0.1.5 · 2026-10-20
 
 - **Źródła zdalne trendu tokenów** (`zrodla_zdalne`, domyślnie brak): druga maszyna z Claude Code, np. sandbox.
@@ -11,7 +33,7 @@
 
   Na każde źródło przypada jedna próba, bez ponawiania; gdy się nie uda, podsumowanie podaje przyczynę, a skrypt
   liczy dalej. Każde źródło ma osobne archiwum `dane/tokeny-archiwum-<nazwa>.json` i wiersze `zrodlo=<nazwa>`
-  w `tokeny-tydzien.csv`. Format jest zgodny z ręcznym odczytem sandboksa z 10-20 (`sandbox-liczby.json`,
+  w `tokeny-tydzien.csv`. Format jest zgodny z ręcznym odczytem sandboksa (`sandbox-liczby.json`,
   `tokeny-archiwum-sandbox.json`). `--bez-zdalnych` pomija źródła zdalne w danym przebiegu.
 - **Poprawka 0.1.4:** zapis trendu sklejał wiersze innych źródeł, które miały ten sam tydzień (np. dwa okna
   `sandbox-pomiar` z 09-26), i czyścił kolumny, których skrypt nie liczy (`*_sygnaly`, `pokrycie_wiad_proc`), oraz
@@ -63,7 +85,7 @@ Propozycje z retro R02 (sekcja 10) i R03 (sekcje 2a, 7, 10).
   (zapis cache > 50k po przerwie > 1 h) z listą; kontekst startowy sesji; najdroższe sesje; koszt w tabelach
   projektów i sesji. Na danych R02 i R03 wyniki zgadzają się z ręczną analizą R03 (np. wybudzenia R02 $9,10).
 - **Praca bez lokalnych sesji:** commity i PR-y bez zapisu transkrypcji sesji repo w ±30 min (`commity_bez_sesji`,
-  `pr_bez_sesji`) i uwaga w podsumowaniu (childproxy R03: 190 z 205 commitów). Pole `transkrypcje_dodatkowe`
+  `pr_bez_sesji`) i uwaga w podsumowaniu (w jednym z repozytoriów 190 z 205 commitów). Pole `transkrypcje_dodatkowe`
   dołącza transkrypcje skopiowane z innej maszyny.
 - **Linie reguł:** pole `katalogi_regul_osobno` (np. `repo-roots/` z kopiami `CLAUDE.md` dla przyszłych repo)
   liczy takie katalogi osobno (`claude_md_linie_osobno`); podsumowanie podpowiada kandydatów (≥ 3 zagnieżdżone

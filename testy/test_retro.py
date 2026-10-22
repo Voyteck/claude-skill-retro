@@ -98,8 +98,9 @@ class Srodowisko(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout
 
-    def zaloz_konto(self):
-        return json.loads(self.uruchom("zaloz.py", "--tryb", "konto", "--katalog", str(self.tmp / "ws")))
+    def zaloz_konto(self, jezyk="pl"):
+        return json.loads(self.uruchom("zaloz.py", "--tryb", "konto", "--katalog", str(self.tmp / "ws"),
+                                       "--jezyk", jezyk))
 
 
 class TestZaloz(Srodowisko):
@@ -116,7 +117,7 @@ class TestZaloz(Srodowisko):
         self.assertGreater(len(pierwszy["utworzone"]), 5)
 
     def test_projekt(self):
-        wynik = json.loads(self.uruchom("zaloz.py", "--tryb", "projekt", "--repo", str(self.repo / "pod")))
+        wynik = json.loads(self.uruchom("zaloz.py", "--tryb", "projekt", "--repo", str(self.repo / "pod"), "--jezyk", "pl"))
         self.assertEqual(pathlib.Path(wynik["katalog_roboczy"]), self.repo / ".retro")
         self.assertFalse((self.repo / ".retro" / "nauki.md").exists())
         self.assertFalse((self.claude / "retro.json").exists())
@@ -167,7 +168,7 @@ class TestSygnaly(Srodowisko):
         self.assertIn("| moj-projekt |", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
 
     def test_projekt_tylko_swoje_sesje(self):
-        self.uruchom("zaloz.py", "--tryb", "projekt", "--repo", str(self.repo))
+        self.uruchom("zaloz.py", "--tryb", "projekt", "--repo", str(self.repo), "--jezyk", "pl")
         self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--bez-gh", cwd=self.repo / "pod")
         wyniki = list((self.repo / ".retro" / "dane").glob("sygnaly-*/metryki.json"))
         self.assertEqual(len(wyniki), 1)
@@ -716,9 +717,123 @@ class TestPrzypomnienie(Srodowisko):
         self.assertNotIn("hookSpecificOutput", wynik)
 
     def test_tryb_projektu(self):
-        self.uruchom("zaloz.py", "--tryb", "projekt", "--repo", str(self.repo))
+        self.uruchom("zaloz.py", "--tryb", "projekt", "--repo", str(self.repo), "--jezyk", "pl")
         self.assertIn("w tym projekcie", self.hook(self.repo / "pod")["systemMessage"])
         self.assertIsNone(self.hook(self.inny))
+
+
+class TestJezyki(Srodowisko):
+    def test_zaloz_po_angielsku(self):
+        wynik = self.zaloz_konto("en")
+        ws = self.tmp / "ws"
+        self.assertEqual(json.loads((ws / "konfiguracja.json").read_text(encoding="utf-8"))["jezyk"], "en")
+        self.assertIn("Commitments register", (ws / "zobowiazania.md").read_text(encoding="utf-8"))
+        self.assertTrue(wynik["szablon_retro"].replace("\\", "/").endswith("assets/en/szablon-retro.md"))
+        self.assertEqual(wynik["uwagi"], [])
+
+    def test_zaloz_jezyk_bez_szablonow(self):
+        wynik = self.zaloz_konto("de")
+        self.assertEqual(wynik["jezyk"], "de")
+        self.assertIn("`de`", wynik["uwagi"][0])
+        self.assertIn("Commitments register", (self.tmp / "ws" / "zobowiazania.md").read_text(encoding="utf-8"))
+
+    def test_konfiguracja_bez_pola_jezyk_po_polsku(self):
+        self.zaloz_konto("en")
+        plik = self.tmp / "ws" / "konfiguracja.json"
+        konf = json.loads(plik.read_text(encoding="utf-8"))
+        del konf["jezyk"]                                     # katalog sprzed 0.2.0
+        plik.write_text(json.dumps(konf), encoding="utf-8")
+        self.assertEqual(wspolne.wczytaj_konfiguracje(self.tmp / "ws")["jezyk"], "pl")
+
+    def test_sygnaly_po_angielsku(self):
+        self.zaloz_konto("en")
+        wyjscie = self.tmp / "wyn"
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--bez-gh", "--wyjscie", str(wyjscie))
+        podsumowanie = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("# Retro signals:", podsumowanie)
+        self.assertIn("## Tokens and cost", podsumowanie)
+        self.assertIn("## Token trend", podsumowanie)
+        os_czasu = (wyjscie / "repo.md").read_text(encoding="utf-8")
+        self.assertIn("**Owner:**", os_czasu)
+        self.assertIn("**wlasna:** zrób inaczej", os_czasu)    # klasy odpowiedzi to identyfikatory
+        m = json.loads((wyjscie / "metryki.json").read_text(encoding="utf-8"))
+        self.assertEqual(m["pyt_rekomendowana"], 2)             # „(rekomendowane)” rozpoznane też przy jezyk=en
+
+    def test_status_zakonczone_w_wielu_jezykach(self):
+        self.zaloz_konto("en")
+        for status in ("completed", "zakończone", "Done"):
+            plik = self.tmp / "ws" / "retro" / "R00-2026-10-08.md"
+            plik.write_text(f"# R00\n\n**Status:** {status}\n", encoding="utf-8")
+            self.assertIsNone(self.hook(self.inny, "2026-10-14"), status)
+        plik.write_text("# R00\n\n**Status:** draft\n", encoding="utf-8")
+        self.assertIn("Retro overdue", self.hook(self.inny, "2026-10-14")["systemMessage"])
+
+    def test_okno_od_commita_zakonczenia_po_angielsku(self):
+        self.zaloz_konto("en")
+        ws = self.tmp / "ws"
+        plik = ws / "retro" / f"R00-{dt.date.today().isoformat()}.md"
+        plik.write_text("# R00\n\n**Status:** completed\n", encoding="utf-8")
+        for polecenie in (["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "retro(R00)"]):
+            subprocess.run(["git", *polecenie], cwd=ws, check=True, capture_output=True)
+        wyjscie = self.tmp / "wyn"
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--bez-gh", "--wyjscie", str(wyjscie))
+        self.assertIn("from the commit that completed R00", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
+
+    def hook(self, cwd, dzis=None):
+        argumenty = ["--dzis", dzis] if dzis else []
+        out = self.uruchom("przypomnienie.py", *argumenty, wejscie=json.dumps({"cwd": str(cwd)}))
+        return json.loads(out) if out.strip() else None
+
+
+class TestRozpoznawanieJezyka(unittest.TestCase):
+    def test_rekomendacja(self):
+        import teksty
+        for etykieta in ("Tak (rekomendowane)", "Yes (Recommended)", "Sí (recomendado)", "Oui (recommandé)",
+                         "Ja (empfohlen)", "Sì (raccomandato)", "Ja (aanbevolen)", "Tak — zalecam"):
+            self.assertTrue(teksty.WZOR_REKOMENDACJI.search(etykieta), etykieta)
+        for etykieta in ("Nie zalecane", "Not recommended", "No recomendado", "Nicht empfohlen", "Inna opcja"):
+            self.assertFalse(teksty.WZOR_REKOMENDACJI.search(etykieta), etykieta)
+
+    def test_pytanie_o_fakt(self):
+        import sygnaly
+        q = {"question": "Which network are you on? [fact]", "options": [{"label": "Home"}, {"label": "Office"}]}
+        self.assertEqual(sygnaly.klasyfikuj_odpowiedz("hotel wifi", q), "fakt")
+        q["question"] = "W jakiej sieci jesteś? [fakt]"
+        self.assertEqual(sygnaly.klasyfikuj_odpowiedz("hotel", q), "fakt")
+
+    def test_korekta_wg_jezyka(self):
+        import teksty
+        self.assertTrue(teksty.wzor_korekty("pl").search("dlaczego znowu?"))
+        self.assertTrue(teksty.wzor_korekty("pl").search("why again?"))      # angielskie zawsze
+        self.assertTrue(teksty.wzor_korekty("en").search("That's not what I asked"))
+        self.assertFalse(teksty.wzor_korekty("en").search("dlaczego znowu?"))
+
+    def test_teksty_kompletne(self):
+        import teksty
+        for klucz, wpis in teksty.TEKSTY.items():
+            self.assertEqual(set(wpis), set(teksty.JEZYKI), klucz)
+
+    def test_nic_nie_przeslania_t(self):
+        """Zmienna albo argument `t` w funkcji przesłania teksty.t (TypeError dopiero na rzadkiej ścieżce)."""
+        import ast
+        for plik in SKRYPTY.glob("*.py"):
+            drzewo = ast.parse(plik.read_text(encoding="utf-8"))
+            if not any(isinstance(w, ast.ImportFrom) and w.module == "teksty" and any(a.name == "t" for a in w.names)
+                       for w in ast.walk(drzewo)):
+                continue
+            for w in ast.walk(drzewo):
+                if isinstance(w, ast.Name) and w.id == "t" and isinstance(w.ctx, ast.Store):
+                    self.fail(f"{plik.name}:{w.lineno}: przypisanie do `t`")
+                if isinstance(w, ast.arg) and w.arg == "t":
+                    self.fail(f"{plik.name}:{w.lineno}: argument `t`")
+
+    def test_nieznany_jezyk_po_angielsku(self):
+        import teksty
+        try:
+            teksty.ustaw("de")
+            self.assertEqual(teksty.t("kier_gorzej"), "↑ worse")
+        finally:
+            teksty.ustaw("pl")
 
 
 class TestKalendarz(unittest.TestCase):

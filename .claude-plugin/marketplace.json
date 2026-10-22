@@ -1,12 +1,12 @@
 {
   "name": "retro",
   "owner": {"name": "Wojciech Zieliński"},
-  "description": "Marketplace z pluginem retro (retrospektywa pracy z Claude Code).",
+  "description": "Marketplace with the retro plugin (retrospectives of working with Claude Code).",
   "plugins": [
     {
       "name": "retro",
       "source": "./plugins/retro",
-      "description": "Retrospektywa sposobu pracy z Claude Code: zobowiązania, dowody, decyzje, przypomnienie."
+      "description": "Retrospective of working with Claude Code: commitments, evidence, decisions, reminder."
     }
   ]
 }

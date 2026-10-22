@@ -1,205 +1,234 @@
 ---
 name: retro
-description: Retrospektywa sposobu pracy z Claude Code w stylu Agile (użytkownik + Claude + podagenci), zwykle co 2 dni robocze. Rozlicza zobowiązania z poprzednich retro (czy były przestrzegane i czy miały sens), zbiera dowody z transkrypcji Claude Code, gita i GitHuba, ocenia co działało i co nie (także po stronie użytkownika), proponuje najwyżej 5 zmian do jego decyzji i wdraża przyjęte. Przy pierwszym użyciu zakłada katalog roboczy (całe konto albo jeden projekt). Użyj, gdy użytkownik prosi o retro, retrospektywę, lessons learned, przegląd nauk, „co robimy dobrze, a co źle”, „czy trzymamy się ustaleń”, continuous improvement, albo gdy przypomnienie o zaległym retro dostało jego zgodę.
+description: Agile-style retrospective of how the user works with Claude Code (user + Claude + subagents), usually every 2 working days. Reviews commitments from previous retros (were they kept, were they worth it), gathers evidence from Claude Code transcripts, git and GitHub, assesses what worked and what did not (including on the user's side), proposes at most 5 changes for the user to decide and implements the accepted ones. On first use it sets up a working directory (whole account or one project) and asks for the language. Use when the user asks for a retro, retrospective, retrospektywa, lessons learned, a review of lessons, "what are we doing well and what badly" („co robimy dobrze, a co źle”), "are we sticking to our agreements" („czy trzymamy się ustaleń”), continuous improvement, or when a reminder about an overdue retro got the user's consent.
 ---
 
 # Retro
 
-Cel: domknięta pętla **zobowiązanie → przestrzeganie → efekt → decyzja**, a nie lista spostrzeżeń. Każde retro
-zaczyna się od rozliczenia tego, co ustalono wcześniej.
+Goal: a closed loop **commitment → compliance → effect → decision**, not a list of observations. Every retro
+starts by reviewing what was agreed before.
 
-## Miejsca
+## Places
 
-- **Skill:** `${CLAUDE_SKILL_DIR}` (`scripts/`, `assets/`, `references/`). Skrypty uruchamiasz
-  `python "${CLAUDE_SKILL_DIR}/scripts/<skrypt>.py"` (albo `python3`; Python ≥ 3.8, tylko biblioteka standardowa).
-  Na Windows `python` i `python3` bywają atrapami ze Sklepu Microsoft („nie znaleziono Python”): użyj wtedy `py`.
-- **Katalog roboczy** (stan między retro, zawsze poza skillem):
-  - tryb **konta**: wszystkie projekty z transkrypcji na tym koncie; katalog wskazuje `~/.claude/retro.json`;
-  - tryb **projektu**: jedno repo; katalog `<repo>/.retro/`, commitowany z projektem, wspólny dla zespołu.
+- **Skill:** `${CLAUDE_SKILL_DIR}` (`scripts/`, `assets/`, `references/`). Run scripts with
+  `python "${CLAUDE_SKILL_DIR}/scripts/<script>.py"` (or `python3`; Python ≥ 3.8, standard library only).
+  On Windows `python` and `python3` are often Microsoft Store stubs ("Python was not found"): use `py` then.
+- **Working directory** (state between retros, always outside the skill):
+  - **account** mode: all projects from the transcripts on this account; the directory is pointed to by
+    `~/.claude/retro.json`;
+  - **project** mode: one repo; directory `<repo>/.retro/`, committed with the project, shared by the team.
 
-  Zawartość: `konfiguracja.json`, `retro/RNN-RRRR-MM-DD.md`, `zobowiazania.md` (rejestr), `metryki.csv`,
-  `nauki.md` (tryb konta), `dane/` (wyciągi z transkrypcji, poza gitem).
-- Skrypty: `wspolne.py` (rozpoznanie stanu), `zaloz.py` (zakładanie katalogu), `sygnaly.py` (dowody z okna),
-  `tokeny.py` (cennik, archiwum i trend tokenów; używa go `sygnaly.py`), `zbierz_liczby.py` (liczby z transkrypcji
-  innej maszyny dla trendu), `dopisz_metryki.py` (wiersz `metryki.csv`),
-  `przypomnienie.py` (hook przypomnienia). Pola konfiguracji:
-  `references/konfiguracja.md`. Znaczenie metryk i ich ograniczenia: `references/sygnaly.md`; ceny do metryk
-  kosztu: `references/cennik.json`.
+  Contents: `konfiguracja.json`, `retro/RNN-YYYY-MM-DD.md`, `zobowiazania.md` (register), `metryki.csv`,
+  `nauki.md` (account mode), `dane/` (transcript extracts, outside git). File names, configuration keys and CSV
+  columns are Polish identifiers; glossary: `references/konfiguracja.md`.
+- Scripts: `wspolne.py` (state detection), `zaloz.py` (directory setup), `sygnaly.py` (evidence from the window),
+  `tokeny.py` (price list, token archive and trend; used by `sygnaly.py`), `zbierz_liczby.py` (numbers from
+  another machine's transcripts for the trend), `dopisz_metryki.py` (a `metryki.csv` row),
+  `przypomnienie.py` (reminder hook), `teksty.py` (script messages per language and language-independent
+  recognition). Configuration fields: `references/konfiguracja.md`. Meaning and limits of
+  the metrics: `references/sygnaly.md`; prices for cost metrics: `references/cennik.json`.
+- Templates: `assets/<jezyk>/` (`pl`, `en`). For a language without its own templates use `assets/en/` and
+  translate headings and labels while filling them in.
 
-## Zasady stałe
+## Standing rules
 
-1. **Dowód albo nic.** Każde „dobrze”, „źle” i ocena przestrzegania wskazuje dowód: `MM-DD HH:MM` + 8 znaków id
-   sesji (z osi czasu w `dane/sygnaly-*/<projekt>.md`), numer PR, hash commitu albo plik.
-2. **Oceniasz też siebie, więc bez laurki.** Najpierw szukaj złamań zobowiązań, potem potwierdzeń. Przy
-   „przestrzegane” podaj liczbę okazji i złamań, nie przymiotnik.
-3. **Strona użytkownika szczerze**, gdy `ocena_wlasciciela` w konfiguracji jest włączona: jego decyzje i nawyki
-   oceniasz jak pracę Claude'a, w kategoriach kosztu i efektu (czas, przerwane prace, rundy poprawek), nie osoby.
-4. **Mniej reguł, nie więcej.** Najwyżej 5 nowych zobowiązań na retro. Przy ponad 10 aktywnych retro musi
-   zaproponować co najmniej jedno utrwalenie albo porzucenie. Każda rekomendacja mówi, co zastępuje lub skraca.
-5. **Mechanizm zamiast tekstu.** Reguły z mechanizmem (test, hook, ochrona gałęzi, szablon, przypięty model
-   agenta) są przestrzegane; reguły tylko w tekście, wymagające nawyku, zwykle umierają. Proponując zmianę,
-   najpierw szukaj mechanizmu; samą regułę w tekście proponuj, gdy mechanizmu nie ma.
-6. **Decyduje użytkownik.** Propozycje stają się zobowiązaniami dopiero po jego akceptacji. Pytaj narzędziem
-   AskUserQuestion (jeśli jest dostępne; inaczej numerowaną listą w wiadomości), rekomendowana opcja pierwsza
-   z dopiskiem „(rekomendowane)”. **Jedno pytanie = jedna niezależna decyzja.** Treść propozycji i ewentualny
-   krok do wykonania wpisz w samo pytanie, bo tekst nad widżetem bywa niewidoczny.
-7. **Retro nie zmienia kodu produktów** i nie uruchamia ciężkich testów. Zmienia reguły (CLAUDE.md, pamięć,
-   rejestr, `nauki.md`) i tylko po decyzji użytkownika.
-8. Po polsku, bez żargonu tam, gdzie jest polskie słowo.
+1. **Evidence or nothing.** Every "good", "bad" and compliance assessment points to evidence: `MM-DD HH:MM` + the
+   first 8 characters of the session id (from the timeline in `dane/sygnaly-*/<project>.md`), a PR number, a
+   commit hash or a file.
+2. **You assess yourself too, so no flattery.** Look for broken commitments first, confirmations second. For
+   "kept", give the number of opportunities and breaches, not an adjective.
+3. **The user's side honestly**, when `ocena_wlasciciela` in the configuration is on: assess their decisions and
+   habits like Claude's work, in terms of cost and effect (time, interrupted work, correction rounds), not the
+   person.
+4. **Fewer rules, not more.** At most 5 new commitments per retro. With more than 10 active, the retro must
+   propose at least one establishing or dropping. Every recommendation says what it replaces or shortens.
+5. **Mechanism over text.** Rules with a mechanism (test, hook, branch protection, template, pinned agent model)
+   are kept; text-only rules that need a habit usually die. When proposing a change, look for a mechanism first;
+   propose a text-only rule only when there is no mechanism.
+6. **The user decides.** Proposals become commitments only after the user accepts them. Ask with the
+   AskUserQuestion tool (if available; otherwise a numbered list in the message), recommended option first,
+   marked as recommended in the user's language ("(Recommended)", „(rekomendowane)”). **One question = one
+   independent decision.** Put the proposal and any step to perform into the question itself, because the text
+   above the widget is sometimes not visible.
+7. **The retro does not change product code** and does not run heavy tests. It changes rules (CLAUDE.md, memory,
+   register, `nauki.md`), and only after the user decides.
+8. **Language.** Everything meant for the user (chat, questions and options, the retro file, the register,
+   rules, briefs for sessions) is in the language from `jezyk` in the configuration (`pl` when the field is
+   missing), plain, without jargon where an ordinary word exists. These instructions are in English; that does
+   not change the output language.
 
-## Krok 0. Rozpoznanie i pierwsze uruchomienie
+## Step 0. Detection and first run
 
-1. `python "${CLAUDE_SKILL_DIR}/scripts/wspolne.py"` wypisuje JSON: katalog roboczy, tryb, konfigurację,
-   ostatnie zakończone retro, następny numer.
-2. **Brak katalogu** (`katalog_roboczy: null`) = pierwsze uruchomienie. Zadaj osobne pytania:
-   - tryb: „Całe konto (rekomendowane, gdy jedna osoba pracuje w wielu projektach)” / „Ten projekt (retro
-     w repo, wspólne dla zespołu)”;
-   - w trybie konta katalog: `~/retro` (rekomendowane) / inny;
-   - ocena strony użytkownika: „Tak, szczerze (rekomendowane)” / „Tylko praca Claude'a i agentów”;
-   - kalendarz dni roboczych: „Polski (rekomendowane)” / „Sam weekend”.
+1. `python "${CLAUDE_SKILL_DIR}/scripts/wspolne.py"` prints JSON: working directory, mode, configuration, last
+   completed retro, next number.
+2. **No directory** (`katalog_roboczy: null`) = first run. Ask separate questions, the language first:
+   - language: the language the user is writing in (recommended) / English / another;
+   - mode: "Whole account (recommended when one person works in many projects)" / "This project (retro in the
+     repo, shared by the team)";
+   - in account mode, the directory: `~/retro` (recommended) / other;
+   - assessing the user's side: "Yes, honestly (recommended)" / "Only the work of Claude and agents";
+   - working-day calendar, recommended by the user's country: Polish public holidays (`PL`) or weekends only
+     (`brak`).
 
-   Potem `python "${CLAUDE_SKILL_DIR}/scripts/zaloz.py" --tryb konto --katalog <katalog> [--kalendarz brak]
-   [--bez-oceny-wlasciciela]` albo `--tryb projekt --repo <repo>`. Pokaż, co powstało. Jeśli skill nie jest
-   zainstalowany jako plugin, przypomnienie nie działa samo: zaproponuj hook według `references/konfiguracja.md`,
-   sekcja „Przypomnienie bez pluginu”.
-3. Tryb konta: sesja powinna pracować w katalogu roboczym (przenieś ją narzędziem zmiany katalogu, jeśli jest;
-   inaczej używaj ścieżek bezwzględnych). Tryb projektu: sesja w repo projektu.
-4. Numer `N` = `nastepny_numer`. Plik `retro/RNN-RRRR-MM-DD.md` z `assets/szablon-retro.md`,
-   `**Status:** szkic`. Jeśli istnieje niezakończony szkic, zapytaj: dokończyć go czy zastąpić.
-5. Okno: od dnia ostatniego **zakończonego** retro (włącznie) do dziś. `sygnaly.py` sam zaczyna je od godziny
-   commita, który zakończył tamto retro, więc zdarzenia sprzed niego nie liczą się do rozliczenia. Argumenty
-   skillu („tylko projekt X”, „od 2026-10-06”) zawężają okno lub zakres.
+   Then `python "${CLAUDE_SKILL_DIR}/scripts/zaloz.py" --tryb konto --katalog <dir> --jezyk <code>
+   [--kalendarz brak] [--bez-oceny-wlasciciela]` or `--tryb projekt --repo <repo> --jezyk <code>`. Show what was
+   created. If the skill is not installed as a plugin, the reminder does not work by itself: propose a hook as in
+   `references/konfiguracja.md`, section "Reminder without the plugin".
+3. Account mode: the session should work in the working directory (move it with a change-directory tool if there
+   is one; otherwise use absolute paths). Project mode: the session works in the project repo.
+4. Number `N` = `nastepny_numer`. File `retro/RNN-YYYY-MM-DD.md` from `assets/<jezyk>/szablon-retro.md`, with the
+   draft status (`**Status:** szkic` / `draft`). If an unfinished draft exists, ask: finish it or replace it.
+5. Window: from the day of the last **completed** retro (inclusive) to today. `sygnaly.py` itself starts it at the
+   time of the commit that completed that retro, so events before it do not count towards the review. Skill
+   arguments ("only project X", "since 2026-10-06") narrow the window or the scope.
 
-**Retro zero** (brak zakończonych retro, pusty rejestr): okno od najstarszej transkrypcji. Zamiast rozliczenia
-rejestru zrób bilans dotychczasowych nauk: wpisy `feedback` w pamięci projektów
-(`~/.claude/projects/*/memory/`), globalny `~/.claude/CLAUDE.md` i sekcje o pracy z Claude'em w CLAUDE.md
-repozytoriów. Traktuj je jak niejawne zobowiązania: przestrzegane? z efektem? duplikaty między projektami?
-sprzeczne? martwe? Wynik to pierwszy rejestr (najwyżej 10 aktywnych) do akceptacji użytkownika.
+**Retro zero** (no completed retros, empty register): window from the oldest transcript. Instead of reviewing the
+register, take stock of the existing lessons: `feedback` entries in project memory
+(`~/.claude/projects/*/memory/`), the global `~/.claude/CLAUDE.md` and sections about working with Claude in
+repositories' CLAUDE.md. Treat them as implicit commitments: kept? effective? duplicated across projects?
+contradictory? dead? The result is the first register (at most 10 active) for the user to accept.
 
-## Krok 1. Dane
+## Step 1. Data
 
 ```
-python "${CLAUDE_SKILL_DIR}/scripts/sygnaly.py" --od RRRR-MM-DD
+python "${CLAUDE_SKILL_DIR}/scripts/sygnaly.py" --od YYYY-MM-DD
 ```
 
-Wynik w `<katalog roboczy>/dane/sygnaly-<od>_<do>/`: `podsumowanie.md`, `metryki.json`, `<projekt>.md` (oś
-czasu). Przeczytaj podsumowanie i metryki, porównaj z `metryki.csv`. Klasy odpowiedzi na pytania i ograniczenia
-liczb: `references/sygnaly.md`. „[K?]” to heurystyka, nie dowód.
+Output in `<working dir>/dane/sygnaly-<from>_<to>/`: `podsumowanie.md`, `metryki.json`, `<project>.md`
+(timeline). Reports are in the configured language (English for languages other than `pl`). Read the summary and
+the metrics, compare with `metryki.csv`. Answer classes and the limits of the numbers: `references/sygnaly.md`.
+The heuristic correction marker (`[C?]`, in Polish reports `[K?]`) is a hint, not evidence.
 
-Tokeny i koszt lokalnych sesji liczy skrypt (sekcja „Tokeny i koszt” podsumowania: koszt w cenach API jako miara
-względna, koszt na wiadomość, kontekst, podagenci, wybudzenia, kontekst startowy); ręcznej analizy tokenów nie rób.
-Do trendu bierz `koszt_na_wiadomosc_usd`, `kontekst_mediana`, `kontekst_ponad_200k_proc`, `podagenci_opus_koszt_proc`,
-`wybudzenia` i `kontekst_startowy_mediana`; najdroższe sesje i wybudzenia z listy w podsumowaniu to dowody do
-sekcji „co nie działało”. Pracy w sandboksie i chmurze lokalne tokeny nie obejmują: gdy w repo są rekordy zużycia
-z tamtych środowisk (np. ze skillu `claude-usage-report`), weź z nich koszt na scalony PR.
+Tokens and cost of local sessions are computed by the script (the summary section "Tokens and cost" („Tokeny
+i koszt”): cost at API prices as a relative measure, cost per message, context, subagents, wake-ups, startup
+context); do not analyse tokens by hand. For the trend take `koszt_na_wiadomosc_usd`, `kontekst_mediana`,
+`kontekst_ponad_200k_proc`, `podagenci_opus_koszt_proc`, `wybudzenia` and `kontekst_startowy_mediana`; the most
+expensive sessions and wake-ups listed in the summary are evidence for the "what did not work" section. Local
+tokens do not cover work in a sandbox or in the cloud: when the repo has usage records from those environments
+(e.g. an export from another tool), take the cost per merged PR from them.
 
-Przeczytaj też sekcję „Trend tokenów”: tydzień po tygodniu z `tokeny-tydzien.csv` (skrypt dopisuje do niego
-kolejne tygodnie i nadpisuje tydzień niepełny), ostatnie 4 tygodnie wobec mediany 8 wcześniejszych. Wskaźnik
-oznaczony **↑ pogorszenie** wpisz do sekcji „co nie działało” z liczbami z tabeli i poszukaj przyczyny w najdroższych
-sesjach okna; „za mało danych” nie jest sygnałem. Wiersze innych źródeł (np. `zrodlo=sandbox`) mają własną
-tabelę; nie sumuj ich z lokalnymi. Źródło zdalne z konfiguracji (`zrodla_zdalne`) skrypt odczytuje raz; gdy
-podsumowanie pokazuje „brak odczytu”, nie ponawiaj połączenia ani nie sonduj maszyny. Podaj użytkownikowi gotowe
-polecenie do uruchomienia u siebie (`references/sygnaly.md`, „Źródła zdalne”: wynik do pliku i pole `plik`) i
-licz trend z tego, co jest w archiwum.
+Also read the "Token trend" („Trend tokenów”) section: week by week from `tokeny-tydzien.csv` (the script appends
+new weeks and overwrites the incomplete one), the last 4 weeks against the median of the 8 earlier ones. Put an
+indicator marked **↑ worse** („↑ pogorszenie”) into "what did not work" with the numbers from the table and look
+for the cause in the window's most expensive sessions; "not enough data" („za mało danych”) is not a signal. Rows
+from other sources (e.g. `zrodlo=sandbox`) have their own table; do not add them to the local ones. A remote
+source from the configuration (`zrodla_zdalne`) is read once by the script; when the summary shows "not read"
+(„brak odczytu”), do not retry the connection or probe the machine. Give the user a ready command to run
+themselves (`references/sygnaly.md`, "Remote sources": output to a file and the `plik` field) and compute the
+trend from what is in the archive.
 
-Podsumowanie zawiera uwagi o danych; uwzględnij je, zanim zacytujesz liczby: okno dłuższe niż retencja
-transkrypcji, checkout repo w tyle za zdalną gałęzią (reguły na dysku nieaktualne), projekty z pamięcią bez sesji
-w oknie, repo z commitami bez lokalnych sesji (sandbox, chmura: liczby na wiadomość i sesję tej pracy nie widzą),
-katalogi z kopiami `CLAUDE.md` (kandydaci do `katalogi_regul_osobno`; dopisanie to decyzja użytkownika), modele
-bez ceny w cenniku. Sekrety w osiach czasu są zamazywane (`[zamazane]`), ale to heurystyka: gdy mimo to zobaczysz klucz albo
-hasło, nie przepisuj go do pliku retro ani do zadań dla podagentów, tylko zgłoś w sekcji 8a jako sprawę do rotacji.
+The summary contains notes about the data (paragraphs starting **Note:** / **Uwaga:**); take them into account
+before quoting numbers:
+a window longer than transcript retention, a repo checkout behind its remote branch (rules on disk out of date),
+projects with memory but no sessions in the window, repos with commits but no local sessions (sandbox, cloud: the
+per-message and per-session numbers do not see that work), directories with copies of `CLAUDE.md` (candidates for
+`katalogi_regul_osobno`; adding them is the user's decision), models without a price in the price list. Secrets in
+timelines are masked (`[redacted]`, in Polish reports `[zamazane]`), but that is a heuristic: if you still see a
+key or password, do not copy it into the retro file or into subagent tasks, only report it in section 8a as
+something to rotate.
 
-## Krok 2. Analiza
+## Step 2. Analysis
 
-- **Małe okno** (do ~40 wiadomości użytkownika łącznie): analizuj sam.
-- **Większe:** podagenci `general-purpose` z jawnym modelem `model_podagentow` z konfiguracji, równolegle,
-  jeden na projekt z ruchem plus jeden przekrojowy (współpraca, strona użytkownika, sprzeczności między
-  projektami). Każdy dostaje ścieżkę osi czasu projektu, `zobowiazania.md`, pliki reguł projektu, sekcję
-  „Zasady stałe” i zadanie:
-  1. dla każdego aktywnego zobowiązania: okazje, złamania, dowody, czy dało efekt;
-  2. co działało / co nie działało, z dowodami i przyczyną;
-  3. obserwacje strony użytkownika (jeśli ocena włączona);
-  4. sprzeczne i martwe reguły;
-  5. najwyżej 3 kandydatów na rekomendacje, każdy z sygnałem przestrzegania i mechanizmem, jeśli jest.
+- **Small window** (up to ~40 user messages in total): analyse it yourself.
+- **Larger:** `general-purpose` subagents with the explicit model `model_podagentow` from the configuration, in
+  parallel, one per project with activity plus one cross-cutting (collaboration, the user's side, contradictions
+  between projects). Each gets the project timeline path, `zobowiazania.md`, the project's rules files, the
+  "Standing rules" section, the output language and the task:
+  1. for each active commitment: opportunities, breaches, evidence, whether it had an effect;
+  2. what worked / what did not, with evidence and cause;
+  3. observations about the user's side (if assessment is on);
+  4. contradictory and dead rules;
+  5. at most 3 candidate recommendations, each with a compliance signal and a mechanism, if there is one.
 
-  Podagent zapisuje analizę do `dane/sygnaly-…/analiza-<zakres>.md` i zwraca ≤300 słów. Pełną transkrypcję
-  (`~/.claude/projects/*/<sesja>.jsonl`) może przeszukiwać `grep` po id sesji i czasie, nie wczytuje jej całej.
-  Pytania podagentów wracają w raporcie; zadajesz je użytkownikowi.
+  The subagent writes its analysis to `dane/sygnaly-…/analiza-<scope>.md` and returns ≤300 words. It may search
+  the full transcript (`~/.claude/projects/*/<session>.jsonl`) with `grep` by session id and time, without
+  loading it whole. Subagents' questions come back in their reports; you ask the user.
 
-## Krok 3. Synteza
+## Step 3. Synthesis
 
-Wypełnij plik retro wg szablonu. Rozliczenie zobowiązań:
+Fill in the retro file according to the template. Commitments review:
 
-| pole | wartości |
+| field | values |
 |---|---|
-| przestrzegane | tak / częściowo (x z y okazji) / nie / brak okazji |
-| sens | tak / nie / za wcześnie (za mało okazji) |
-| werdykt | utrzymać / zmienić / utrwalić / porzucić |
+| kept | yes / partly (x of y opportunities) / no / no opportunity |
+| worth it | yes / no / too early (too few opportunities) |
+| verdict | keep / change / establish / drop |
 
-- **utrwalić** = przestrzegane bez złamań w 3 kolejnych retro → zostaje w pliku reguł, rejestr przestaje je
-  śledzić (sprawdzenie wyrywkowe raz na 5 retro);
-- **porzucić** = brak efektu albo koszt większy niż zysk → usuń też z plików reguł;
-- **zmienić** = idea dobra, forma nie działa → nowe zobowiązanie zastępuje stare.
+- **establish** = kept without breaches in 3 consecutive retros → stays in the rules file, the register stops
+  tracking it (spot check once every 5 retros);
+- **drop** = no effect or cost greater than gain → also remove it from the rules files;
+- **change** = good idea, the form does not work → a new commitment replaces the old one.
 
-Zanim uznasz coś za martwe albo zaproponujesz „porzucić” (regułę, katalog, skrypt, hook, stronę), zapytaj
-użytkownika, czy ktoś tego używa: brak śladu w transkrypcjach nie znaczy, że nikt tego nie używa (praca w chmurze,
-inni ludzie, rzadkie użycie; przykład z R01: katalog `site/`). Pytaj w kroku 4 razem z werdyktem albo
-wcześniej, gdy od odpowiedzi zależy analiza.
+Before you call something dead or propose "drop" (a rule, directory, script, hook, page), ask the user whether
+anyone uses it: no trace in transcripts does not mean nobody uses it (cloud work, other people, rare use; e.g. a
+directory with a website generated outside sessions). Ask in step 4 together with the verdict, or earlier when the
+analysis depends on the answer.
 
-**Czeka na użytkownika** (sekcja 8a szablonu). Zbierz z dowodem i datą „od”:
-- pytania odłożone w oknie (klasa „odłożone” w osiach czasu), które nie wróciły;
-- PR-y otwarte dłużej niż 2 dni robocze (`gh pr list` w repozytoriach z podsumowania) i gałęzie niewypchnięte
+**Waiting for the user** (template section 8a). Collect, with evidence and a "since" date:
+- questions deferred in the window (class `odlozone` in the timelines) that did not come back;
+- PRs open for more than 2 working days (`gh pr list` in the repositories from the summary) and unpushed branches
   (`git log --branches --not --remotes`);
-- notatki przekazania (`HANDOFF*`, wpisy pamięci „do zrobienia”) bez sesji w projekcie od ponad 10 dni roboczych;
-- otwarte pytania z plików `rejestry_pytan` z konfiguracji, starsze niż 30 dni;
-- pozycje z sekcji 8a poprzedniego retro, których nie zamknięto.
+- handoff notes (`HANDOFF*`, "to do" memory entries) with no session in the project for more than 10 working days;
+- open questions from the `rejestry_pytan` files in the configuration, older than 30 days;
+- items from section 8a of the previous retro that were not closed.
 
-Retro samo tych spraw nie wykonuje; o każdą pozycję pytasz w kroku 4.
+The retro does not do these things itself; you ask about each item in step 4.
 
-## Krok 4. Decyzje użytkownika
+**Convention to offer:** a question about a fact only the user knows ("which network are you on?") has no
+recommended option by nature. Marking it `[fact]` (or `[fakt]`) in the question text makes the signals count it
+in its own class, not as a missing recommendation or a correction. If unmarked fact questions distort the numbers,
+propose the convention as a rule for the user's rules file.
 
-Do 4 pytań na wywołanie, jedno pytanie = jedna niezależna decyzja (łącz tylko pomysły od siebie zależne).
-Kolejność: rekomendacje i zmiany statusu, potem sprzątanie reguł, na końcu „czeka na użytkownika”.
-- utrzymanie zobowiązania bez zmiany statusu: `Utrzymaj (rekomendowane)` / `Zmień: …` / `Porzuć`;
-- werdykt zmieniający status, nowa rekomendacja, usunięcie z reguł: `Przyjmij (rekomendowane)` / `Zmień: …` / `Odrzuć`;
-- pozycja „czeka na użytkownika”: `Zrobić teraz (w sesji projektu)` / `Zamknąć` / `Odłożyć do <data>`.
-  „Zrobić teraz” = zadanie dla sesji projektu z pełnym kontekstem, nie praca retro. Gdy jest narzędzie do
-  zakładania sesji (np. `start_session`, `spawn_task`), od razu zaproponuj je kartą (propozycja, którą użytkownik
-  uruchamia jednym kliknięciem), nie czekaj na osobną zgodę na start: w turze wywołanej zdarzeniem
-  automatycznym (powiadomienie podagenta, wiadomość innej sesji) aplikacja pozwala tylko zaproponować kartę, a karta
-  nie wskazuje innego folderu. Dlatego brief zaczyna się od „Przejdź do `<pełna ścieżka projektu>` (narzędzie
-  zmiany katalogu albo ścieżki bezwzględne), zanim zaczniesz” i niesie cały potrzebny kontekst (dowody, pliki,
-  co znaczy „gotowe”). Bez takiego narzędzia zapisz brief w sekcji 10 retro do skopiowania.
-  Gdy pozycji jest więcej niż 8 (zwykle retro zero), łącz w jedno pytanie pozycje tego samego projektu, które
-  trafiłyby do jednego zadania; sprawy bezpieczeństwa (rotacje, klucze, hasła) zawsze pytaj osobno.
+## Step 4. User decisions
 
-Zapisz odpowiedzi w sekcji 9 retro, własne odpowiedzi użytkownika dosłownie.
+Up to 4 questions per call, one question = one independent decision (combine only proposals that depend on each
+other). Order: recommendations and status changes, then rule clean-up, finally "waiting for the user". Labels
+below are in English; write them in the user's language.
+- keeping a commitment without a status change: `Keep (recommended)` / `Change: …` / `Drop`;
+- a verdict that changes the status, a new recommendation, a removal from the rules: `Accept (recommended)` /
+  `Change: …` / `Reject`;
+- a "waiting for the user" item: `Do it now (in a project session)` / `Close` / `Postpone to <date>`.
+  "Do it now" = a task for a project session with full context, not retro work. When there is a tool for starting
+  sessions (e.g. `start_session`, `spawn_task`), propose it right away as a card (a proposal the user starts with
+  one click), do not wait for separate consent to start: in a turn triggered by an automated event (a subagent
+  notification, a message from another session) the app only allows proposing a card, and a card cannot point to
+  another folder. So the brief starts with "Go to `<full project path>` (change-directory tool or absolute paths)
+  before you begin" and carries all the needed context (evidence, files, what "done" means). Without such a tool,
+  write the brief in section 10 of the retro for copying.
+  When there are more than 8 items (usually retro zero), combine into one question the items of the same project
+  that would go into one task; always ask about security matters (rotations, keys, passwords) separately.
 
-## Krok 5. Wdrożenie
+Record the answers in section 9 of the retro, the user's own answers verbatim.
 
-1. `zobowiazania.md`: nowe wpisy `Z-NNN` (format w nagłówku pliku), wiersz oceny w tabeli każdego rozliczonego,
-   zmiany statusu.
-2. Reguły:
-   - **tryb konta:** ogólne (wszystkie projekty) → `~/.claude/CLAUDE.md`, krótko, z numerem `Z-NNN`; wiedza
-     przekrojowa (pułapki komputera i narzędzi) → `nauki.md`; przy pierwszym wpisie zaproponuj jedną linię
-     w `~/.claude/CLAUDE.md` odsyłającą do `nauki.md`, bo pamięć projektu ładuje się tylko w jego folderze;
-   - **projektowe:** CLAUDE.md repo zgodnie z jego zasadami (jeśli zmiany idą przez PR: gałąź
-     `retro/rNN-<temat>` w osobnym worktree i PR);
-   - pamięć projektu (`~/.claude/projects/*/memory/`) → wpis `feedback` z odnośnikiem `Z-NNN`, bez powielania
-     treści z `nauki.md`.
-3. `metryki.csv`: `python "${CLAUDE_SKILL_DIR}/scripts/dopisz_metryki.py" --retro RNN --zobowiazania <aktywne>`
-   (wiersz z najnowszego `metryki.json`; brakujące kolumny nowszej wersji pluginu dopisuje na końcu nagłówka).
-4. W retro: sekcja 10 (co, gdzie, commit lub PR), `**Status:** zakończone` (to resetuje licznik przypomnienia).
-5. Commit: tryb konta w katalogu roboczym; tryb projektu w repo (wg jego zasad), `retro(RNN): <najważniejsza zmiana>`.
-   Commit obejmuje też `tokeny-tydzien.csv` (trend); archiwum `dane/tokeny-archiwum.json` zostaje poza gitem.
+## Step 5. Implementation
 
-## Krok 6. Zamknięcie
+1. `zobowiazania.md`: new `Z-NNN` entries (format in the file header), an assessment row in the table of each
+   reviewed one, status changes.
+2. Rules:
+   - **account mode:** general ones (all projects) → `~/.claude/CLAUDE.md`, briefly, with the `Z-NNN` number;
+     cross-cutting knowledge (pitfalls of the computer and tools) → `nauki.md`; with the first entry, propose one
+     line in `~/.claude/CLAUDE.md` pointing to `nauki.md`, because project memory loads only in its folder;
+   - **project rules:** the repo's CLAUDE.md according to its rules (if changes go through PRs: branch
+     `retro/rNN-<topic>` in a separate worktree and a PR);
+   - project memory (`~/.claude/projects/*/memory/`) → a `feedback` entry with a `Z-NNN` reference, without
+     duplicating content from `nauki.md`.
+3. `metryki.csv`: `python "${CLAUDE_SKILL_DIR}/scripts/dopisz_metryki.py" --retro RNN --zobowiazania <active>`
+   (a row from the latest `metryki.json`; it appends columns missing from a newer plugin version at the end of the
+   header).
+4. In the retro: section 10 (what, where, commit or PR), status completed (`**Status:** zakończone` /
+   `completed`; this resets the reminder counter).
+5. Commit: account mode in the working directory; project mode in the repo (according to its rules),
+   `retro(RNN): <most important change>`. The commit also includes `tokeny-tydzien.csv` (trend); the archive
+   `dane/tokeny-archiwum.json` stays outside git.
 
-W czacie 5–8 zdań: najważniejszy wniosek, co przyjęto, co się zmienia od jutra, odnośnik do pliku retro.
+## Step 6. Closing
 
-## Utrzymanie
+In the chat, 5–8 sentences: the most important conclusion, what was accepted, what changes from tomorrow, a link
+to the retro file.
 
-Zainstalowana kopia pluginu jest nadpisywana przy aktualizacji: zmian skillu nie rób w niej, tylko w repo pluginu
-(test: `python -m unittest discover -s testy` w repo). Zmianę, którą retro uzna za potrzebną, zapisz w sekcji 10
-retro jako propozycję dla repo pluginu. Skrypty i treść z ukośnikami odwrotnymi pisz narzędziem Write, nie przez
-heredoc basha.
+## Maintenance
+
+The installed copy of the plugin is overwritten on update: do not change the skill there, only in the plugin repo
+(test: `python -m unittest discover -s testy` in the repo). A change the retro finds necessary goes into section
+10 of the retro as a proposal for the plugin repo. Write scripts and content with backslashes using the Write
+tool, not a bash heredoc.
