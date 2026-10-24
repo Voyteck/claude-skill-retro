@@ -13,6 +13,20 @@
 | metryka | R(N-2) | R(N-1) | RN | kierunek |
 |---|---|---|---|---|
 
+## 2a. Tokeny i efektywność pisania
+
+Źródło: sekcja „Tokeny i efektywność pisania” podsumowania sygnałów (obowiązkowa w każdym retro).
+
+| wskaźnik | R(N-3) | R(N-2) | R(N-1) | RN | lepiej / gorzej |
+|---|---|---|---|---|---|
+
+- **Lepiej:** … (liczby, przyczyna, dowód)
+- **Gorzej:** … (liczby, przyczyna, dowód)
+- **Efektywność wg modelu implementatora:** PR z poprawką i rund na PR dla każdego modelu (Opus, Sonnet, Fable…),
+  powroty od przeglądu i CI, udział modelu w koszcie implementacji; przy < 5 PR modelu tylko wskazówka.
+- **Sugestie (2–3):** zmiana · oczekiwany efekt · miara (np. „implementacja prostych PR na Sonnecie, jeśli odsetek
+  PR z poprawką nie wzrośnie o więcej niż 10 pkt proc. w dwóch retro”).
+
 ## 3. Rozliczenie zobowiązań
 
 | ID | zobowiązanie | przestrzegane | sens | dowody | proponowany werdykt |

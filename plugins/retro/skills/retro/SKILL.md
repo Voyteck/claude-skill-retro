@@ -121,6 +121,19 @@ source from the configuration (`zrodla_zdalne`) is read once by the script; when
 themselves (`references/sygnaly.md`, "Remote sources": output to a file and the `plik` field) and compute the
 trend from what is in the archive.
 
+**Tokens and writing efficiency** („Tokeny i efektywność pisania”, mandatory section 2a of every retro): the
+summary compares the token and fix indicators with the last 3 retros in `metryki.csv`, shows cost by agent role
+and model week by week (from the trend archives, so also for remote sources), fix rounds in PRs merged on GitHub
+by author model (from `Co-Authored-By: Claude <Model>` trailers) and returns from review and CI in transcripts by
+implementer and model. In section 2a write: what got better and what got worse, with numbers against the previous
+2–3 retros; efficiency by implementer model (share of PRs with a fix, rounds per PR, returns, share of
+implementation cost); 2–3 suggestions, each with an expected effect and a measure for the next retro (e.g. move
+simple implementation to a cheaper model while its share of PRs with a fix does not grow). A model with fewer than
+5 PRs gives a hint, not a result; a round is not always a return from the tester (rebases, conflicts). Agent roles
+come from `role_agentow` in the configuration (`references/konfiguracja.md`); when the table shows a project's
+implementer or reviewer under "other subagents", propose adding its type there. A suggestion the user accepts
+becomes a recommendation in section 8 like any other.
+
 The summary contains notes about the data (paragraphs starting **Note:** / **Uwaga:**); take them into account
 before quoting numbers:
 a window longer than transcript retention, a repo checkout behind its remote branch (rules on disk out of date),

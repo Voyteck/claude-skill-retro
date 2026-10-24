@@ -147,16 +147,19 @@ def dodaj_wywolanie(wywolania: dict, wynik):
 # ---------------------------------------------------------------- archiwum
 
 def do_rekordu(w: dict, sid: str) -> dict:
-    return {"ts": w["czas"].isoformat(), "s": sid[:8], "sub": w["podagent"], "model": w["model"], "ep": w.get("ep"),
-            "inp": w["wejscie"], "out": w["wyjscie"], "cw5": w["zapis_5m"], "cw1h": w["zapis_1h"], "cr": w["odczyt"],
-            "speed": "fast" if w["fast"] else "standard", "ws": w["web_search"]}
+    r = {"ts": w["czas"].isoformat(), "s": sid[:8], "sub": w["podagent"], "model": w["model"], "ep": w.get("ep"),
+         "inp": w["wejscie"], "out": w["wyjscie"], "cw5": w["zapis_5m"], "cw1h": w["zapis_1h"], "cr": w["odczyt"],
+         "speed": "fast" if w["fast"] else "standard", "ws": w["web_search"]}
+    if w.get("agent"):                 # typ podagenta (od 0.3.0; jak pole `agent` w `zbierz_liczby.py`)
+        r["agent"] = w["agent"]
+    return r
 
 
 def z_rekordu(r: dict) -> dict:
     w = {"czas": czas_lokalny(r.get("ts") or ""), "sesja": r.get("s") or "?", "podagent": bool(r.get("sub")),
          "model": r.get("model") or "?", "ep": r.get("ep"), "wejscie": r.get("inp") or 0, "wyjscie": r.get("out") or 0,
          "zapis_5m": r.get("cw5") or 0, "zapis_1h": r.get("cw1h") or 0, "odczyt": r.get("cr") or 0,
-         "fast": r.get("speed") == "fast", "web_search": r.get("ws") or 0}
+         "fast": r.get("speed") == "fast", "web_search": r.get("ws") or 0, "agent": r.get("agent")}
     w["kontekst"] = w["wejscie"] + w["zapis_5m"] + w["zapis_1h"] + w["odczyt"]
     return w
 
@@ -213,17 +216,20 @@ def scal_odczyt(plik: pathlib.Path, odczyt: dict) -> dict:
     return arch
 
 
-def odczytaj_zrodlo(zrodlo: dict, katalog: pathlib.Path, limit_s: int = 300):
+def odczytaj_zrodlo(zrodlo: dict, katalog: pathlib.Path, limit_s: int = 300, prefiks: str = "",
+                    skrypt: str = "zbierz_liczby.py"):
     """Odczyt źródła zdalnego z konfiguracji: (dane, opis) albo (None, opis błędu). `polecenie` (lista argumentów
-    albo napis) dostaje `zbierz_liczby.py` na stdin i zwraca JSON na stdout; `plik` to taki JSON zapisany wcześniej.
+    albo napis) dostaje `skrypt` na stdin i zwraca JSON na stdout; `plik` to taki JSON zapisany wcześniej.
+    `prefiks` wybiera pola wpisu (np. `zdarzenia_` → `zdarzenia_polecenie`, `zdarzenia_plik`).
     Jedna próba, bez ponawiania: brak odpowiedzi maszyny zdalnej to nie awaria retro."""
     import shlex
     import subprocess
+    zrodlo = {k[len(prefiks):]: v for k, v in zrodlo.items() if k.startswith(prefiks)} if prefiks else zrodlo
     if zrodlo.get("polecenie"):
         polecenie = zrodlo["polecenie"]
         if isinstance(polecenie, str):
             polecenie = shlex.split(polecenie)
-        skrypt = (pathlib.Path(__file__).resolve().parent / "zbierz_liczby.py").read_bytes()
+        skrypt = (pathlib.Path(__file__).resolve().parent / skrypt).read_bytes()
         try:
             r = subprocess.run(polecenie, input=skrypt, capture_output=True, timeout=zrodlo.get("limit_s", limit_s))
         except (OSError, subprocess.TimeoutExpired) as e:

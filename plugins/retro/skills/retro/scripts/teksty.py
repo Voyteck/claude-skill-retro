@@ -203,6 +203,87 @@ TEKSTY = {
               "the `cennik` config field or to `references/cennik.json` in the plugin repo."},
     "tok_wywolan": {"pl": "{n} wywołań", "en": "{n} calls"},
 
+    # efektywnosc.py: tokeny i efektywność pisania
+    "rola_sesja": {"pl": "sesja główna", "en": "main session"},
+    "rola_implementacja": {"pl": "implementacja", "en": "implementation"},
+    "rola_przeglad": {"pl": "przegląd", "en": "review"},
+    "rola_ci": {"pl": "CI", "en": "CI"},
+    "rola_architekt": {"pl": "architekt", "en": "architect"},
+    "rola_inne": {"pl": "inne podagenty", "en": "other subagents"},
+    "ef_bez_stopki": {"pl": "bez stopki", "en": "no trailer"},
+    "ef_tytul": {"pl": "## Tokeny i efektywność pisania", "en": "## Tokens and writing efficiency"},
+    "ef_opis": {
+        "pl": "Porównanie z poprzednimi retro (`metryki.csv`), koszt wg roli agenta i modelu, rundy poprawek "
+              "w scalonych PR i powroty od przeglądu i CI. Dane do sekcji „2a” dokumentu retro; ograniczenia "
+              "pomiaru: `references/sygnaly.md`.",
+        "en": "Comparison with previous retros (`metryki.csv`), cost by agent role and model, fix rounds in merged PRs "
+              "and returns from review and CI. Data for section \"2a\" of the retro document; measurement limits: "
+              "`references/sygnaly.md`."},
+    "ef_porownanie": {"pl": "### Wobec poprzednich retro", "en": "### Against previous retros"},
+    "ef_porownanie_brak": {"pl": "Brak wcześniejszych wierszy w `metryki.csv`.",
+                           "en": "No earlier rows in `metryki.csv`."},
+    "ef_metryka": {"pl": "metryka", "en": "metric"},
+    "ef_teraz": {"pl": "teraz", "en": "now"},
+    "ef_kierunek": {"pl": "kierunek (wobec mediany poprzednich; więcej = gorzej)",
+                    "en": "direction (against the previous median; more = worse)"},
+    "ef_koszt_rol": {"pl": "### Koszt wg roli i modelu: `{zrodlo}` (USD w cenach bieżących modeli rodziny; % tygodnia)",
+                     "en": "### Cost by role and model: `{zrodlo}` (USD at current model prices of the family; % of week)"},
+    "ef_niezak": {"pl": " (niezak.)", "en": " (unfin.)"},
+    "ef_rola_model": {"pl": "rola · model", "en": "role · model"},
+    "ef_razem": {"pl": "razem", "en": "total"},
+    "ef_rundy": {"pl": "### Rundy poprawek w scalonych PR (GitHub)", "en": "### Fix rounds in merged PRs (GitHub)"},
+    "ef_rundy_opis": {
+        "pl": "Runda = kolejna paczka commitów w PR po przerwie > {przerwa} min (data autorstwa, odporna na rebase). "
+              "Pierwsza paczka to praca, kolejne to powroty: po przeglądzie, czerwonym CI, uwagach właściciela, ale "
+              "też po rebase. Model autora = najczęstsza stopka `Co-Authored-By: Claude <Model>` w pierwszej paczce.",
+        "en": "Round = another batch of commits in a PR after a break > {przerwa} min (author date, robust to rebase). "
+              "The first batch is the work, the next ones are returns: after review, red CI, the owner's remarks, but "
+              "also after a rebase. Author model = the most frequent `Co-Authored-By: Claude <Model>` trailer in the "
+              "first batch."},
+    "ef_pr": {"pl": "PR", "en": "PRs"},
+    "ef_z_poprawka": {"pl": "z poprawką", "en": "with a fix"},
+    "ef_rund_na_pr": {"pl": "rund na PR", "en": "rounds per PR"},
+    "ef_commitow_na_pr": {"pl": "commitów na PR", "en": "commits per PR"},
+    "ef_mediana_h": {"pl": "mediana h do scalenia", "en": "median h to merge"},
+    "ef_tydzien_scalenia": {"pl": "tydzień scalenia", "en": "merge week"},
+    "ef_okno": {"pl": "okno retro", "en": "retro window"},
+    "ef_model_autora": {"pl": "model autora", "en": "author model"},
+    "ef_tydzien": {"pl": "tydzień", "en": "week"},
+    "ef_komorka": {"pl": "{pr} PR, {proc}% z popr.", "en": "{pr} PRs, {proc}% fixed"},
+    "ef_kto_poprawia": {"pl": "Kto pisał commity poprawek (model autora PR → model commitu poprawki): ",
+                        "en": "Who wrote the fix commits (PR author model → fix commit model): "},
+    "ef_powroty": {"pl": "### Powroty od przeglądu i CI w transkrypcjach: `{zrodlo}` (okno retro)",
+                   "en": "### Returns from review and CI in transcripts: `{zrodlo}` (retro window)"},
+    "ef_powroty_brak": {"pl": "Brak uruchomień podagentów z rolą implementacji, przeglądu albo CI.",
+                        "en": "No subagent runs with an implementation, review or CI role."},
+    "ef_powroty_opis": {
+        "pl": "Powrót = implementator uruchomiony albo kontynuowany na tym samym PR po negatywnym werdykcie przeglądu "
+              "albo czerwonym CI. Przegląd i CI przypisane do ostatniego implementatora tego PR w sesji; bez niego "
+              "do sesji głównej (jej własne poprawki nie są liczone jako powroty).",
+        "en": "Return = the implementer started or continued on the same PR after a negative review verdict or red "
+              "CI. Review and CI are assigned to the last implementer of that PR in the session; without one to the "
+              "main session (its own fixes are not counted as returns)."},
+    "ef_powroty_kolumny": {"pl": "| implementator · model | uruchomienia | przeglądy (negatywne) | CI (porażki) | powroty |",
+                           "en": "| implementer · model | runs | reviews (negative) | CI (failures) | returns |"},
+    "ef_powroty_przyczyny": {"pl": "Powroty wg przyczyny: przegląd {przeglad}, CI {ci}.",
+                             "en": "Returns by cause: review {przeglad}, CI {ci}."},
+    "ef_ograniczenia": {
+        "pl": "Role agentów: pole `role_agentow` konfiguracji. Runda to nie zawsze powrót od testera (rebase, konflikty "
+              "partii integracyjnych); stopka bywa pominięta; werdykt i wynik CI to heurystyka na raporcie podagenta. "
+              "Mało PR jednego modelu (< 5) to wskazówka, nie wynik.",
+        "en": "Agent roles: the `role_agentow` config field. A round is not always a return from the tester (rebase, "
+              "integration batch conflicts); the trailer is sometimes missing; verdict and CI result are a heuristic on "
+              "the subagent's report. Few PRs of one model (< 5) are a hint, not a result."},
+    "ef_gh_pominiety": {"pl": "Rundy poprawek pominięte (brak gh albo `--bez-gh`).",
+                        "en": "Fix rounds skipped (no gh or `--bez-gh`)."},
+    "ef_gh_blad": {"pl": "Rundy poprawek `{repo}`: błąd gh ({blad}).", "en": "Fix rounds `{repo}`: gh error ({blad})."},
+    "ef_koszt_bez_trendu": {"pl": "Koszt wg roli pominięty: wymaga archiwum trendu (bez `--bez-trendu` i `--projekt`).",
+                            "en": "Cost by role skipped: it needs the trend archive (without `--bez-trendu` and `--projekt`)."},
+    "ef_zdarzenia_brak": {"pl": "Zdarzenia agentów `{nazwa}`: **brak odczytu** ({opis}).",
+                          "en": "Agent events `{nazwa}`: **not read** ({opis})."},
+    "ef_zdarzenia_ok": {"pl": "Zdarzenia agentów `{nazwa}`: {opis}, {n} zdarzeń.",
+                        "en": "Agent events `{nazwa}`: {opis}, {n} events."},
+
     # sygnaly.py: podsumowanie
     "brak_katalogu": {
         "pl": "Nie znaleziono katalogu roboczego retro. Załóż go skryptem zaloz.py --tryb konto|projekt (patrz SKILL.md).",

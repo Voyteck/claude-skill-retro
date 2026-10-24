@@ -66,6 +66,44 @@ Columns since 0.1.3 (in `metryki.csv` at the end, after `zobowiazania_aktywne`; 
 | `commity_bez_sesji`, `pr_bez_sesji` | commits (committer time) and opened PRs without a local transcript of a session in that repo within ±30 min | work in a sandbox, cloud, another machine, merges on GitHub; the summary warns when it is ≥ 20% (and ≥ 3 commits or ≥ 2 PRs) |
 | `claude_md_linie_osobno` | lines of rules files in `katalogi_regul_osobno` | e.g. copies of `CLAUDE.md` kept in one repo for future repositories |
 | `wybudzenia_wlasciciel`, `wybudzenia_tlo`, `wybudzenia_sesja`, `wybudzenia_inne` (since 0.2.1) | `wybudzenia` split by the first input after the break: the user's message; a background task or subagent (`<task-notification>`, `queue-operation`, "[Subagent hand-back]"); another session (`peer`, `<agent-message>`, `<cross-session-message>`, `<side-sessions-event>`, a system reminder about sessions); anything else (e.g. a tool result after a long foreground wait or API retries) | a hook on the user's message (`UserPromptSubmit`) can only act on the first kind; system reminders the app prepends to a message are skipped when classifying |
+| `pr_analizowane`, `pr_z_poprawka_proc`, `rundy_na_pr` (since 0.3.0) | PRs merged in the window on GitHub (repos of the window with a remote), the share with at least one fix round, mean rounds per PR | see "Tokens and writing efficiency"; empty without `gh` |
+| `pr_wg_modelu`, `pr_z_poprawka_proc_wg_modelu` (since 0.3.0) | the same by author model, as text `Opus:71;Fable:27` (share of PRs, % with a fix) | `bez stopki` = no `Co-Authored-By: Claude` trailer |
+| `powroty_przeglad`, `powroty_ci` (since 0.3.0) | returns of an implementer to the same PR after a negative review or red CI, local transcripts plus remote agent events | the main session fixing its own PR is not a return |
+| `koszt_implementacji_proc_wg_modelu` (since 0.3.0) | model families' share of implementation subagents' cost in the window, `Opus:90;Sonnet:10` | role by `role_agentow` |
+
+## Tokens and writing efficiency
+
+The summary section "Tokens and writing efficiency" („Tokeny i efektywność pisania”) is data for the mandatory
+section 2a of the retro document.
+
+- **Against previous retros:** `koszt_na_wiadomosc_usd`, `kontekst_mediana`, `kontekst_ponad_200k_proc`,
+  `kontekst_startowy_mediana`, `podagenci_opus_koszt_proc`, `wybudzenia_koszt_usd`, `pr_z_poprawka_proc`,
+  `rundy_na_pr`, `powroty_przeglad`, `powroty_ci` from the last 3 rows of `metryki.csv` (a row of the same window,
+  when the script is rerun after `dopisz_metryki.py`, is skipped) and now; the arrow compares now with the median of
+  the previous ones (more than 20% = arrow; more = worse for every indicator). Retros from before a metric existed
+  show "—".
+- **Cost by role and model:** from the trend archives (local and every remote source), week by week for
+  `efektywnosc_tygodnie` weeks, at the prices of the current models of each family (like `koszt_api_usd_ceny_55`).
+  The role comes from the subagent type: remote archives (`zbierz_liczby.py`) have it since 0.1.5, the local archive
+  since 0.3.0; older local subagent calls whose transcripts are gone count as "other subagents".
+- **Fix rounds in merged PRs:** `gh api graphql` (search, 40 PRs per page, at most 10 pages per repo; `gh pr list
+  --json commits` exceeds the GraphQL node limit). Commits sorted by author date (robust to rebase), without merge
+  commits; a batch after a break longer than `pr_przerwa_rundy_min` is a round. The author model is the most frequent
+  `Co-Authored-By: Claude <Model>` trailer in the first batch. Skipped: branches with prefixes from
+  `pr_pomin_galezie`, PRs with more than `pr_max_commitow` commits. "Who wrote the fix commits" pairs the author model
+  with the model of each fix commit.
+- **Returns in transcripts:** `scripts/zdarzenia_agentow.py` reads subagent starts (`Agent`/`Task`: type, resolved
+  model, PR numbers from the description or prompt), continuations (`SendMessage` to an agent id) and reports
+  (synchronous result or "[Subagent hand-back]"). From a report of a review agent it reads the verdict (PL/EN
+  patterns such as "Verdict: GO/MERGE/NO-GO/FIX", „Można scalić: tak/nie”, „nie blokuje”), from a CI agent the result
+  per PR. Only numbers and labels leave the script. A return = an implementation agent started or continued on the
+  same PR in the same session after a negative review or red CI. Remote machines: `zdarzenia_polecenie` /
+  `zdarzenia_plik` in an entry of `zrodla_zdalne` (one attempt, no retries, like the token sources), e.g.
+  `cmd /c 'ssh -T <host> python3 - < <skill>/scripts/zdarzenia_agentow.py > <working dir>/dane/<name>-zdarzenia.json'`.
+- **Limits:** a round is not always a return from the tester (rebase, conflicts of integration batches, the owner's
+  remarks); a missing trailer makes the author "no trailer"; verdicts and CI results are a heuristic on free text and
+  the role of an agent depends on its type name; a main session that implements and fixes by itself has no returns;
+  with fewer than 5 PRs of a model the comparison between models is a hint only.
 
 ## Tokens and cost
 

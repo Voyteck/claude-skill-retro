@@ -1,5 +1,33 @@
 # Zmiany
 
+## 0.3.0 · 2026-10-24
+
+Tokeny i efektywność pisania w każdym retro: co było lepsze, co gorsze wobec 2–3 poprzednich retro, ile razy praca
+wracała od przeglądu i CI do implementacji i jak to zależy od modelu, który programował.
+
+- **Nowa sekcja podsumowania „Tokeny i efektywność pisania”** (PL/EN, `scripts/efektywnosc.py`):
+  - porównanie wskaźników tokenów i poprawek z 3 ostatnimi wierszami `metryki.csv`, ze strzałkami lepiej/gorzej;
+  - koszt wg roli agenta (sesja główna, implementacja, przegląd, CI, architekt, inne podagenty) i rodziny modelu,
+    tydzień po tygodniu, w cenach bieżących modeli rodziny, osobno dla każdego źródła trendu;
+  - rundy poprawek w scalonych PR z GitHuba (`gh api graphql`): paczka commitów po przerwie > 20 min to runda,
+    model autora ze stopki `Co-Authored-By: Claude <Model>`; tabele wg tygodnia, modelu autora, tygodnia × modelu
+    i „kto pisał poprawki”;
+  - powroty od przeglądu i CI w transkrypcjach: implementator uruchomiony albo kontynuowany na tym samym PR po
+    negatywnym werdykcie przeglądu albo czerwonym CI, wg typu i modelu implementatora.
+- **Role agentów** z pola `role_agentow` konfiguracji (wzorce typu podagenta; domyślne role w
+  `efektywnosc.ROLE_DOMYSLNE`). Nowe pola: `efektywnosc_tygodnie`, `pr_przerwa_rundy_min`, `pr_max_commitow`,
+  `pr_pomin_galezie`.
+- **`scripts/zdarzenia_agentow.py`**: samodzielny skrypt (biblioteka standardowa) wyciągający z transkrypcji same
+  liczby i etykiety pracy podagentów (start, kontynuacja, raport, werdykt, wynik CI, numery PR, tokeny). Lokalnie
+  wywołuje go `sygnaly.py`; dla innej maszyny wpis `zrodla_zdalne` dostaje pola `zdarzenia_polecenie` albo
+  `zdarzenia_plik` (jedna próba, bez ponawiania).
+- **Archiwum tokenów** zapisuje typ podagenta (`agent`), jak archiwa źródeł zdalnych; starsze wpisy bez typu liczą
+  się jako „inne podagenty”.
+- **Nowe kolumny `metryki.csv`** (na końcu): `pr_analizowane`, `pr_z_poprawka_proc`, `rundy_na_pr`, `pr_wg_modelu`,
+  `pr_z_poprawka_proc_wg_modelu`, `powroty_przeglad`, `powroty_ci`, `koszt_implementacji_proc_wg_modelu`.
+- **Szablony retro** (`assets/pl`, `assets/en`): obowiązkowa sekcja „2a. Tokeny i efektywność pisania” (porównanie
+  z 2–3 poprzednimi retro, lepiej/gorzej z liczbami, efektywność wg modelu implementatora, 2–3 sugestie z efektem
+  i miarą); `SKILL.md` opisuje, jak ją wypełnić. Ograniczenia pomiaru: `references/sygnaly.md`.
 ## 0.2.2 · 2026-10-24
 
 Poprawka z retro autora (R04): wiadomości właściciela poprzedzone przypomnieniem systemowym.

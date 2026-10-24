@@ -43,9 +43,16 @@ DOMYSLNA_KONFIGURACJA = {
     "katalogi_regul_osobno": [],           # ["repo-roots/"] — kopie CLAUDE.md dla innych repo, poza claude_md_linie
     "transkrypcje_dodatkowe": [],          # katalogi `projects` skopiowane z innych maszyn
     "cennik": {},                          # nadpisania references/cennik.json: {"modele": {"claude-x": {...}}}
-    "zrodla_zdalne": [],                   # [{"nazwa": "sandbox", "polecenie": [...] | "plik": "..."}] — trend tokenów
+    "zrodla_zdalne": [],                   # [{"nazwa": "sandbox", "polecenie": [...] | "plik": "..."}] — trend tokenów;
+                                           # opcjonalnie "zdarzenia_polecenie" | "zdarzenia_plik" — zdarzenia agentów
     "rejestry_pytan": [],                  # pliki z otwartymi pytaniami do ludzi spoza zespołu
     "gh": None,                            # ścieżka do gh, gdy nie ma go w PATH
+    # efektywność pisania (od 0.3.0)
+    "role_agentow": {},                    # {"implementacja": ["wzorzec", ...], ...}; puste = efektywnosc.ROLE_DOMYSLNE
+    "efektywnosc_tygodnie": 6,             # ile tygodni wstecz w tabelach kosztu wg roli i rund poprawek
+    "pr_przerwa_rundy_min": 20,            # przerwa między paczkami commitów, która zaczyna nową rundę
+    "pr_max_commitow": 40,                 # większe PR pomijane (scalenia gałęzi, partie)
+    "pr_pomin_galezie": ["integration/", "batch/"],   # przedrostki gałęzi pomijanych w rundach
 }
 
 

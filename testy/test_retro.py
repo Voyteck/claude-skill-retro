@@ -803,6 +803,255 @@ class Test021(Srodowisko):
         self.assertIn("| kierunek |\n|---|---|---|---|---|\n", bez)
 
 
+AGENT_PROG, AGENT_PRZEGLAD, AGENT_CI = "a1b2c3d4e5f60718", "b2c3d4e5f6071829", "c3d4e5f60718293a"
+
+
+def praca_agentow(cwd: str) -> list:
+    """Sesja: programista na PR #12, przegląd NO-GO, kontynuacja programisty, CI czerwone, kontynuacja, przegląd GO."""
+    pola = {"cwd": cwd, "sessionId": "x"}
+    minuta = lambda n: ts(dt.timedelta(minutes=-60 + n))  # noqa: E731
+
+    def start(n, tid, typ, opis, agent, model, raport):
+        return [{"type": "assistant", "timestamp": minuta(n), **pola, "message": {"model": "claude-opus-5-5", "content": [
+                    {"type": "tool_use", "id": tid, "name": "Agent",
+                     "input": {"subagent_type": typ, "description": opis, "prompt": "zrób to"}}]}},
+                {"type": "user", "timestamp": minuta(n + 1), **pola,
+                 "message": {"content": [{"type": "tool_result", "tool_use_id": tid, "content": [{"type": "text", "text": raport}]}]},
+                 "toolUseResult": {"agentId": agent, "resolvedModel": model, "isAsync": False,
+                                   "content": [{"type": "text", "text": raport}]}}]
+
+    def kontynuacja(n, tid, agent, tekst):
+        return [{"type": "assistant", "timestamp": minuta(n), **pola, "message": {"model": "claude-opus-5-5", "content": [
+            {"type": "tool_use", "id": tid, "name": "SendMessage", "input": {"to": agent, "message": tekst}}]}}]
+
+    return (start(1, "g1", "programista", "PR #12: hook", AGENT_PROG, "claude-opus-5-5", "Gotowe, PR #12 otwarty.")
+            + start(5, "g2", "przeglad-mechaniczny", "Przegląd PR #12", AGENT_PRZEGLAD, "claude-sonnet-5-5",
+                    "Verdict: NO-GO. 2 blocking findings.")
+            + kontynuacja(9, "g3", AGENT_PROG, "Popraw PR #12 wg przeglądu")
+            + start(12, "g4", "obserwator-ci", "CI PR #12", AGENT_CI, "claude-haiku-5-5",
+                    "- 39488962325 (PR #12, feat/hook): failure")
+            + kontynuacja(15, "g5", AGENT_PROG, "PR #12: czerwone CI")
+            + start(20, "g6", "przeglad-mechaniczny", "Przegląd PR #12", AGENT_PRZEGLAD, "claude-sonnet-5-5",
+                    "**Można scalić: tak.** Bez blokerów."))
+
+
+class Test030(Srodowisko):
+    """Zmiany 0.3.0: tokeny i efektywność pisania (role, zdarzenia agentów, rundy poprawek, porównanie)."""
+
+    dopisz = TestSygnalyUzupelnienia.dopisz
+    sygnaly = TestSygnalyUzupelnienia.sygnaly
+
+    def test_werdykt_i_ci(self):
+        import zdarzenia_agentow as za
+        werdykty = [
+            ("Verdict: NO-GO. Two blocking findings.", "negatywny"),
+            ("Verdict: **FIX** before merge", "negatywny"),
+            ("Werdykt: do poprawy (2 uwagi)", "negatywny"),
+            ("Można scalić: nie. Bloker: brak testu.", "negatywny"),
+            ("This PR is not ready to merge: the hook is bypassed.", "negatywny"),
+            ("Verdict: GO, with 3 minor findings. None of them blocks the merge.", "pozytywny"),
+            ("Verdict: MERGE. I found nothing to fix.", "pozytywny"),
+            ("Przegląd PR #963: żadne znalezisko nie blokuje merge'a, są dwie uwagi.", "pozytywny"),
+            ("**Można scalić: tak.** Wszystkie siedem sprawdzeń zielone, bez blokerów.", "pozytywny"),
+            ("Run 1: success. Nothing else.", None),
+        ]
+        for tekst, oczekiwany in werdykty:
+            self.assertEqual(za.werdykt(tekst)[0], oczekiwany, tekst)
+        self.assertEqual(za.werdykt("Verdict: GO, with 3 minor findings.")[1], 3)
+        for tekst, oczekiwany in [
+                ("Run 39488962325 (PR #968, branch x): conclusion failure.", [[968, "porazka"]]),
+                ("- 39491798179 (PR #969, chore/x): cancelled, brak failed jobs", [[969, "anulowane"]]),
+                ("- 39491573821 (PR #968, chore/y): success", [[968, "sukces"]])]:
+            self.assertEqual(za.ci_wyniki(tekst), oczekiwany, tekst)
+        self.assertEqual(za.prs("PR #5, github.com/w/r/pull/77 i #1203; kolor #12ab34"), [5, 77, 1203])
+
+    def test_role_i_rodziny(self):
+        import efektywnosc as ef
+        wz = ef.wzorce_rol({})
+        role = {a: ef.rola(True, a, wz) for a in ("programista", "programista-prosty", "przeglad-mechaniczny",
+                                                    "architekt-przeglad", "obserwator-ci", "architekt", "Explore",
+                                                    "code-reviewer", "general-purpose")}
+        self.assertEqual(role, {"programista": "implementacja", "programista-prosty": "implementacja",
+                                "przeglad-mechaniczny": "przeglad", "architekt-przeglad": "przeglad",
+                                "obserwator-ci": "ci", "architekt": "architekt", "Explore": "inne",
+                                "code-reviewer": "przeglad", "general-purpose": "inne"})
+        self.assertEqual(ef.rola(False, "programista", wz), "sesja")
+        wlasne = ef.wzorce_rol({"role_agentow": {"implementacja": ["^builder"], "przeglad": ["checker"]}})
+        self.assertEqual((ef.rola(True, "builder-x", wlasne), ef.rola(True, "programista", wlasne),
+                          ef.rola(True, "checker", wlasne)), ("implementacja", "inne", "przeglad"))
+        self.assertEqual([ef.rodzina(m) for m in ("claude-opus-5-5[1m]", "claude-fable-5-1", "claude-haiku-4-5", None)],
+                         ["Opus", "Fable", "Haiku", "?"])
+        import collections
+        self.assertEqual(ef.udzialy(collections.Counter({"Opus": 3, "Sonnet": 1})), "Opus:75;Sonnet:25")
+        self.assertIsNone(ef.udzialy(collections.Counter()))
+
+    def zapisz_agentow(self):
+        self.dopisz("f-repo", "sesja-repo.jsonl", praca_agentow(str(self.repo))
+                    + [wywolanie("g0", dt.timedelta(minutes=-61), wyj=100, cwd=str(self.repo))])
+        pod = self.claude / "projects" / "f-repo" / "sesja-repo" / "subagents"
+        pod.mkdir(parents=True)
+        (pod / f"agent-{AGENT_PROG}.meta.json").write_text(json.dumps({"agentType": "programista"}), encoding="utf-8")
+        (pod / f"agent-{AGENT_PROG}.jsonl").write_text(json.dumps(wywolanie(
+            "p1", dt.timedelta(minutes=-58), wyj=1000, cwd=str(self.repo))) + "\n", encoding="utf-8")   # $0.02
+
+    def test_powroty_z_transkrypcji_i_przez_stdin(self):
+        import efektywnosc as ef
+        import zdarzenia_agentow as za
+        self.zapisz_agentow()
+        dane = za.zbierz([self.claude / "projects"], (dt.date.today() - dt.timedelta(days=1)).isoformat())
+        self.assertEqual([z["rodzaj"] for z in dane["zdarzenia"] if z["s"] == "sesja-re"],
+                         ["start", "raport", "start", "raport", "kontynuacja", "start", "raport", "kontynuacja",
+                          "start", "raport"])
+        self.assertEqual(dane["agenci"][AGENT_PROG[:12]]["tokeny"]["out"], 1000)
+        self.assertNotIn("Verdict", json.dumps(dane))                   # treść raportów nie trafia do wyniku
+        od = dt.datetime.now().astimezone() - dt.timedelta(days=1)
+        stat, przyczyny = ef.powroty(dane, ef.wzorce_rol({}), od, od + dt.timedelta(days=2))
+        self.assertEqual(stat[("programista", "Opus")],
+                         {"uruchomienia": 1, "przeglady": 2, "przeglady_neg": 1, "ci": 1, "ci_porazki": 1, "powroty": 2})
+        self.assertEqual(dict(przyczyny), {"przeglad": 1, "ci": 1})
+        # samodzielnie przez stdin (jak w kontenerze); --od filtruje
+        skrypt = (SKRYPTY / "zdarzenia_agentow.py").read_bytes()
+        r = subprocess.run([sys.executable, "-", "--projekty", str(self.claude / "projects"), "--od", "2000-01-01"],
+                           input=skrypt, capture_output=True, cwd=self.tmp)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(json.loads(r.stdout)["zdarzenia"]), 10)
+        r = subprocess.run([sys.executable, "-", "--projekty", str(self.claude / "projects"),
+                            "--od", (dt.date.today() + dt.timedelta(days=2)).isoformat()],
+                           input=skrypt, capture_output=True, cwd=self.tmp)
+        self.assertEqual(json.loads(r.stdout)["zdarzenia"], [])
+
+    def test_rundy_pr(self):
+        import efektywnosc as ef
+        teraz = dt.datetime(2026, 10, 22, 12, 0, tzinfo=dt.timezone.utc)
+        iso = lambda h: (teraz + dt.timedelta(hours=h)).isoformat().replace("+00:00", "Z")  # noqa: E731
+        commit = lambda h, modele, naglowek="feat", rodzice=1: {  # noqa: E731
+            "ts": iso(h), "naglowek": naglowek, "scalenie": rodzice > 1, "modele": modele}
+        lista = [
+            {"repo": "w/r", "pr": 1, "utworzony": iso(-5), "scalony": iso(0), "galaz": "feat/a", "commitow": 4, "commity": [
+                commit(-5, ["Opus"]), commit(-4.9, ["Opus"]), commit(-3, [], "Merge branch 'main'", 2),
+                commit(-2, ["Sonnet"])]},
+            {"repo": "w/r", "pr": 2, "utworzony": iso(-3), "scalony": iso(-1), "galaz": "feat/b", "commitow": 1,
+             "commity": [commit(-3, ["Fable"])]},
+            {"repo": "w/r", "pr": 3, "utworzony": iso(-3), "scalony": iso(-1), "galaz": "integration/x", "commitow": 2,
+             "commity": [commit(-3, ["Opus"]), commit(-1, ["Opus"])]},
+            {"repo": "w/r", "pr": 4, "utworzony": iso(-3), "scalony": iso(-1), "galaz": "feat/c", "commitow": 41,
+             "commity": [commit(-3, ["Opus"])]},
+            {"repo": "w/r", "pr": 5, "utworzony": iso(-9), "scalony": iso(-1), "galaz": "feat/d", "commitow": 3,
+             "commity": [commit(-9, []), commit(-8, []), commit(-7, ["Opus"])]},
+        ]
+        rundy = {r["pr"]: r for r in ef.rundy_pr(lista, {})}
+        self.assertEqual(sorted(rundy), [1, 2, 5])                    # gałąź integracyjna i PR > 40 commitów pominięte
+        self.assertEqual((rundy[1]["autor"], rundy[1]["rundy"], rundy[1]["commity"]), ("Opus", 1, 3))
+        self.assertEqual(rundy[1]["poprawki"], {("Opus", "Sonnet"): 1})
+        self.assertEqual((rundy[2]["autor"], rundy[2]["rundy"]), ("Fable", 0))
+        self.assertEqual((rundy[5]["autor"], rundy[5]["rundy"]), (None, 2))
+        self.assertEqual(ef.opis_pr(list(rundy.values())),
+                         {"pr": 3, "z_poprawka": 66.7, "rundy": 1.0, "commity": 2.3, "h": 5.0})
+        self.assertEqual(sorted(r["pr"] for r in ef.rundy_pr(lista, {"pr_pomin_galezie": [], "pr_przerwa_rundy_min": 180})),
+                         [1, 2, 3, 5])
+        self.assertEqual(ef.rundy_pr(lista, {"pr_przerwa_rundy_min": 180})[0]["rundy"], 0)
+
+    def test_porownanie_z_poprzednimi_retro(self):
+        import efektywnosc as ef
+        import teksty
+        teksty.ustaw("pl")
+        plik = self.tmp / "metryki.csv"
+        plik.write_text("retro,okno_od,okno_od_godzina,koszt_na_wiadomosc_usd,pr_z_poprawka_proc\n"
+                        "R01,2026-10-01,00:00,9,90\nR02,2026-10-05,10:00,1.0,10\nR03,2026-10-09,10:00,2.0,20\n"
+                        "R04,2026-10-13,10:00,3.0,30\nR05,2026-10-17,10:00,99,99\n", encoding="utf-8")
+        etykiety, wiersze = ef.porownanie(plik, {"okno_od": "2026-10-17", "okno_od_godzina": "10:00",
+                                                 "koszt_na_wiadomosc_usd": 1.0, "pr_z_poprawka_proc": 50})
+        self.assertEqual(etykiety, ["R02", "R03", "R04"])           # bez wiersza tego samego okna
+        wynik = {k: (w, teraz, kier) for k, w, teraz, kier in wiersze}
+        self.assertEqual(wynik["pr_z_poprawka_proc"], ([10, 20, 30], 50, "↑ pogorszenie"))
+        self.assertEqual(wynik["koszt_na_wiadomosc_usd"][2], "↓ poprawa")
+        self.assertEqual(wynik["powroty_ci"], ([None, None, None], None, "—"))
+        self.assertEqual(ef.porownanie(self.tmp / "brak.csv", {}), ([], []))
+
+    def falszywy_gh(self):
+        """`gh` w teście: repo `w/r`, jedna strona wyszukiwania scalonych PR, puste listy PR i CI."""
+        teraz = dt.datetime.now(dt.timezone.utc)
+        iso = lambda minuty: (teraz + dt.timedelta(minutes=minuty)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+        commit = lambda m, model, naglowek="feat": {"commit": {  # noqa: E731
+            "oid": "x", "authoredDate": iso(m), "messageHeadline": naglowek, "parents": {"totalCount": 1},
+            "messageBody": f"Opis\n\nCo-Authored-By: Claude {model} <noreply@anthropic.com>" if model else "Opis"}}
+        pr = lambda n, galaz, commity: {"number": n, "createdAt": iso(-300), "mergedAt": iso(-5), "headRefName": galaz,  # noqa: E731
+                                        "commits": {"totalCount": len(commity), "nodes": commity}}
+        odpowiedz = {"data": {"search": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [
+            pr(12, "feat/hook", [commit(-300, "Opus 5.5"), commit(-120, "Opus 5.5", "fix: przegląd")]),
+            pr(13, "feat/docs", [commit(-60, "Sonnet 5.5")]), {}]}}}
+        (self.tmp / "gh-odpowiedz.json").write_text(json.dumps(odpowiedz), encoding="utf-8")
+        kod = ("import json, sys\na = sys.argv[1:]\n"
+               "if a[:2] == ['repo', 'view']: print('w/r')\n"
+               f"elif a[:2] == ['api', 'graphql']: print(open(r'{self.tmp / 'gh-odpowiedz.json'}', encoding='utf-8').read())\n"
+               "else: print('[]')\n")
+        (self.tmp / "gh_falszywy.py").write_text(kod, encoding="utf-8")
+        if os.name == "nt":
+            gh = self.tmp / "gh.cmd"
+            gh.write_text(f'@"{sys.executable}" "{self.tmp / "gh_falszywy.py"}" %*\n', encoding="utf-8")
+        else:
+            gh = self.tmp / "gh"
+            gh.write_text(f"#!{sys.executable}\n" + kod, encoding="utf-8")
+            gh.chmod(0o755)
+        return str(gh)
+
+    def test_sekcja_efektywnosci_w_podsumowaniu(self):
+        self.zapisz_agentow()
+        subprocess.run(["git", "-C", str(self.repo), "remote", "add", "origin", "https://example.com/w/r.git"], check=True)
+        gh = self.falszywy_gh()
+        self.zaloz_konto()
+        ws = self.tmp / "ws"
+        konf = json.loads((ws / "konfiguracja.json").read_text(encoding="utf-8"))
+        konf["gh"] = gh
+        (ws / "konfiguracja.json").write_text(json.dumps(konf), encoding="utf-8")
+        (ws / "metryki.csv").write_text("retro,okno_od,okno_od_godzina,pr_z_poprawka_proc,powroty_przeglad\n"
+                                        "R01,2026-01-01,00:00,10,0\nR02,2026-01-05,00:00,20,0\n", encoding="utf-8")
+        wyjscie = self.tmp / "wyn"
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--wyjscie", str(wyjscie))
+        m = json.loads((wyjscie / "metryki.json").read_text(encoding="utf-8"))
+        self.assertEqual((m["pr_analizowane"], m["pr_z_poprawka_proc"], m["rundy_na_pr"]), (2, 50.0, 0.5))
+        self.assertEqual((m["pr_wg_modelu"], m["pr_z_poprawka_proc_wg_modelu"]), ("Opus:50;Sonnet:50", "Opus:100;Sonnet:0"))
+        self.assertEqual((m["powroty_przeglad"], m["powroty_ci"]), (1, 1))
+        self.assertEqual(m["koszt_implementacji_proc_wg_modelu"], "Opus:100")
+        p = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("## Tokeny i efektywność pisania", p)
+        self.assertIn("| pr_z_poprawka_proc | 10 | 20 | 50 | **↑ pogorszenie** |", p)
+        self.assertIn("| implementacja · Opus |", p)                    # koszt wg roli z archiwum (typ podagenta)
+        self.assertIn("| sesja główna · Opus |", p)
+        self.assertIn("| Opus | 1 | 100% | 1 | 2 |", p)                 # rundy wg modelu autora
+        self.assertIn("Opus → Opus: 1", p)
+        self.assertIn("| programista · Opus | 1 | 2 (1) | 1 (1) | 2 |", p)
+        self.assertIn("Powroty wg przyczyny: przegląd 1, CI 1.", p)
+        arch = json.loads((ws / "dane" / "tokeny-archiwum.json").read_text(encoding="utf-8"))
+        self.assertEqual(arch["calls"]["p1"]["agent"], "programista")
+        # bez gh: rundy pominięte, metryki puste
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--wyjscie", str(wyjscie), "--bez-gh")
+        m = json.loads((wyjscie / "metryki.json").read_text(encoding="utf-8"))
+        self.assertIsNone(m["pr_z_poprawka_proc"])
+        self.assertIn("Rundy poprawek pominięte", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
+
+    def test_zdarzenia_ze_zrodla_zdalnego(self):
+        self.zaloz_konto()
+        ws = self.tmp / "ws"
+        inny = self.tmp / "zdalne" / "projects"
+        (inny / "f-x").mkdir(parents=True)
+        (inny / "f-x" / "zdalna.jsonl").write_text(
+            "\n".join(json.dumps(r) for r in praca_agentow("/workspace")) + "\n", encoding="utf-8")
+        konf = json.loads((ws / "konfiguracja.json").read_text(encoding="utf-8"))
+        konf["zrodla_zdalne"] = [
+            {"nazwa": "kontener", "zdarzenia_polecenie": [sys.executable, "-", "--projekty", str(inny)]},
+            {"nazwa": "zepsute", "zdarzenia_plik": "dane/nie-ma.json"}]
+        (ws / "konfiguracja.json").write_text(json.dumps(konf), encoding="utf-8")
+        wyjscie = self.tmp / "wyn"
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--bez-gh", "--wyjscie", str(wyjscie))
+        p = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("Zdarzenia agentów `kontener`: odczyt poleceniem, 10 zdarzeń.", p)
+        self.assertIn("Zdarzenia agentów `zepsute`: **brak odczytu**", p)
+        self.assertIn("### Powroty od przeglądu i CI w transkrypcjach: `kontener`", p)
+        m = json.loads((wyjscie / "metryki.json").read_text(encoding="utf-8"))
+        self.assertEqual((m["powroty_przeglad"], m["powroty_ci"]), (1, 1))   # lokalnie brak, z kontenera 1 + 1
+
+
 class Test022(Srodowisko):
     """Zmiany 0.2.2: wiadomość właściciela poprzedzona przypomnieniem systemowym aplikacji."""
 

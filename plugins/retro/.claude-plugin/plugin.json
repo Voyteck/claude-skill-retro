@@ -1,6 +1,6 @@
 {
   "name": "retro",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Agile-style retrospective of working with Claude Code: reviews commitments from previous retros, gathers evidence from transcripts, git and GitHub, proposes changes for the user to decide. Reminds about an overdue retro. Multilingual (Polish and English templates; other languages via Claude).",
   "author": {"name": "Wojciech Zieliński"},
   "keywords": ["retro", "retrospective", "retrospektywa", "continuous-improvement", "lessons-learned", "i18n"]
