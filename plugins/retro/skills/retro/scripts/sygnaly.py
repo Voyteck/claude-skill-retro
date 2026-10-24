@@ -61,6 +61,10 @@ ZNACZNIKI_FAKTU = teksty.ZNACZNIKI_FAKTU
 # Tekst w rekordzie „user”, który nie jest wiadomością właściciela (powiadomienia, briefy innych sesji).
 NIE_WLASCICIEL = ("<local-command", "<task-notification", "[Cross-session", "<cross-session-message",
                   "<system-reminder", "Background (from the session")
+# Przyczyny wybudzenia: co weszło do sesji tuż przed wywołaniem po przerwie (kolejność = kolumny metryk).
+PRZYCZYNY_WYBUDZEN = ("wlasciciel", "tlo", "sesja", "inne")
+INNA_SESJA = ("<agent-message", "<cross-session-message", "[Cross-session", "Another Claude session",
+              "Background (from the session")
 EPOKA = dt.datetime(2000, 1, 1).astimezone()
 # Commit lub PR „bez lokalnej sesji”: brak zapisu w transkrypcjach tego repo w tym odstępie.
 MARGINES_SESJI_MIN = 30
@@ -187,7 +191,7 @@ def klasyfikuj_odpowiedz(odp, q) -> str:
         return "odlozone"
     if odp.strip() == "[No preference]":
         return "bez_wyboru"
-    if any(z in (q.get("question") or "").lower() for z in ZNACZNIKI_FAKTU):
+    if teksty.pytanie_o_fakt(q.get("question")):
         # odpowiedź na pytanie o fakt bywa tekstem spoza opcji, ale to nie korekta kierunku
         return "fakt"
     etykiety = [o.get("label", "") for o in q.get("options", [])]
@@ -202,6 +206,46 @@ def klasyfikuj_odpowiedz(odp, q) -> str:
             return "bez_rekomendacji"
         return "rekomendowana" if rekom & set(wybrane) else "inna"
     return "wlasna"
+
+
+def przyczyna_tekstu(tekst: str, pochodzenie, d: dict = None) -> str:
+    """Kto stoi za tekstem wejścia: wlasciciel / tlo (zadanie lub podagent w tle) / sesja (inna sesja) / inne.
+    Przypomnienia systemowe na początku są zdejmowane, bo aplikacja dokleja je także do wiadomości właściciela."""
+    reszta = tekst.lstrip()
+    przypomnienia = ""
+    while reszta.startswith("<system-reminder>") and "</system-reminder>" in reszta:
+        blok, _, reszta = reszta.partition("</system-reminder>")
+        przypomnienia += blok
+        reszta = reszta.lstrip()
+    if (pochodzenie == "task-notification" or reszta.startswith("<task-notification")
+            or "[Subagent hand-back]" in reszta[:400]):
+        return "tlo"
+    if pochodzenie == "peer" or reszta.startswith(INNA_SESJA + ("<side-sessions-event",)):
+        return "sesja"
+    if not reszta:
+        return "sesja" if re.search(r"\bsessions?\b", przypomnienia, re.IGNORECASE) else "inne"
+    if (reszta.startswith(NIE_WLASCICIEL + ("The app was quit",)) or (d or {}).get("entrypoint") == "sdk-cli"
+            or pochodzenie not in ("human", None)):
+        return "inne"
+    return "wlasciciel"
+
+
+def przyczyna_wejscia(d: dict):
+    """Przyczyna rekordu, który może obudzić bezczynną sesję, albo None (rekord to nie wejście)."""
+    typ = d.get("type")
+    if typ == "queue-operation":
+        return przyczyna_tekstu(str(d.get("content") or ""), None, d) if d.get("operation") == "enqueue" else None
+    if typ == "attachment":
+        zal = d.get("attachment") or {}
+        if zal.get("type") != "queued_command":
+            return None
+        return przyczyna_tekstu(str(zal.get("prompt") or ""), (zal.get("origin") or {}).get("kind"), d)
+    if typ != "user" or d.get("isMeta") or d.get("isCompactSummary"):
+        return None
+    tresc = (d.get("message") or {}).get("content")
+    if isinstance(tresc, list) and any(x.get("type") == "tool_result" for x in tresc):
+        return "inne"       # wynik narzędzia: ciąg dalszy tury (np. długi podagent albo ponowienia po błędach API)
+    return przyczyna_tekstu(tekst_tresci(tresc), (d.get("origin") or {}).get("kind"), d)
 
 
 # ---------------------------------------------------------------- transkrypcje
@@ -224,6 +268,7 @@ class Sesja:
         self.start = None          # najwcześniejszy rekord pliku, także sprzed okna
         self.czasy = []            # czasy rekordów w oknie (sesja i podagenci): aktywność przy commitach
         self.wywolania = {}        # message.id -> wywołanie API (sesja i podagenci, także spoza okna)
+        self.wejscia = []          # (czas, przyczyna) wejść sesji głównej, także spoza okna: przyczyny wybudzeń
         self.koszt = None          # koszt w oknie po deduplikacji (metryki_tokenow)
         self.cost_state = 0        # największy `totalCostUSD` z rekordów cost-state (kontrola kosztu w trendzie)
         self.projekt = ("nieznany", None)
@@ -292,6 +337,10 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                 s.start = min(s.start, czas) if s.start else czas
                 if typ == "assistant":
                     dodaj_wywolanie(s.wywolania, wywolanie_api(d, czas, False))
+                else:
+                    przyczyna = przyczyna_wejscia(d)
+                    if przyczyna:
+                        s.wejscia.append((czas, przyczyna))
             if czas is None or not (od <= czas < do):
                 if typ == "assistant" and isinstance(tresc, list):
                     napis = " ".join(x.get("text", "") for x in tresc if x.get("type") == "text")
@@ -492,12 +541,17 @@ def metryki_tokenow(sesje: list, od, do, cennik: dict) -> dict:
         glowne += [w for w in glowna if od <= w["czas"] < do]
         if glowna and not kopie and od <= glowna[0]["czas"] < do:
             startowe.append(glowna[0]["kontekst"])
+        wejscia = sorted(s.wejscia, key=lambda x: x[0])
+        czasy_wejsc = [c for c, _ in wejscia]
         for a, b in zip(glowna, glowna[1:]):
             przerwa_h = (b["czas"] - a["czas"]).total_seconds() / 3600
             if (od <= b["czas"] < do and przerwa_h > PROG_WYBUDZENIA_H
                     and b["zapis_5m"] + b["zapis_1h"] > PROG_WYBUDZENIA_TOKENY):
+                # sesję obudziło pierwsze wejście po poprzednim wywołaniu
+                i = bisect.bisect_right(czasy_wejsc, a["czas"])
+                przyczyna = wejscia[i][1] if i < len(wejscia) and wejscia[i][0] <= b["czas"] else "inne"
                 wybudzenia.append({"sesja": s, "czas": b["czas"], "przerwa_h": przerwa_h,
-                                   "zapis": b["zapis_5m"] + b["zapis_1h"],
+                                   "zapis": b["zapis_5m"] + b["zapis_1h"], "przyczyna": przyczyna,
                                    "koszt": koszt_wywolania(b, cennik, tylko_zapis=True) or 0})
     koszt = sum(w["koszt"] or 0 for w in w_oknie)
     koszt_pod = sum(w["koszt"] or 0 for w in w_oknie if w["podagent"])
@@ -523,6 +577,7 @@ def metryki_tokenow(sesje: list, od, do, cennik: dict) -> dict:
         "modele": collections.Counter({m: round(sum(w["koszt"] or 0 for w in w_oknie if w["model"] == m), 2)
                                        for m in {w["model"] for w in w_oknie}}),
         "wybudzenia": sorted(wybudzenia, key=lambda w: w["czas"]),
+        "wybudzenia_przyczyny": {p: sum(w["przyczyna"] == p for w in wybudzenia) for p in PRZYCZYNY_WYBUDZEN},
         "nieznane_modele": {m: n for m, n in nieznane.items() if n},
         "sesje_startowe": len(startowe),
         "cennik_stan_na": cennik.get("stan_na", "?"),
@@ -790,11 +845,25 @@ def raport_trendu(wiersze, uwaga: str, zdalne: list = ()) -> list:
             l += ["", t("trend_kilka_wierszy", zrodlo=zrodlo)]
             continue
         wyniki = tokeny.trend(wiersze, zrodlo)
-        l += ["", t("trend_zrodlo", zrodlo=zrodlo), "", t("trend_kolumny"), "|---|---|---|---|---|"]
-        for etykieta, m_wcz, ostatnie, m_ost, kierunek, n_wcz in wyniki:
+        biezacy = tokeny.tydzien_niezakonczony(wiersze, zrodlo)
+        naglowek, kreski = t("trend_kolumny"), "|---|---|---|---|---|"
+        if biezacy:
+            naglowek += t("trend_kolumna_biezacy", tydzien=biezacy[0][5:]) + " |"
+            kreski += "---|"
+        l += ["", t("trend_zrodlo", zrodlo=zrodlo), "", naglowek, kreski]
+        for kol, (etykieta, m_wcz, ostatnie, m_ost, kierunek, n_wcz) in zip(tokeny.WSKAZNIKI_TRENDU, wyniki):
             kier = f"**{kierunek}**" if kierunek.startswith("↑") else kierunek
-            l.append(f"| {etykieta} | {fmt(m_wcz)} ({n_wcz}) | "
-                     + ", ".join(f"{tydz[5:]}: {fmt(v)}" for tydz, v in ostatnie) + f" | {fmt(m_ost)} | {kier} |")
+            wiersz = (f"| {etykieta} | {fmt(m_wcz)} ({n_wcz}) | "
+                      + ", ".join(f"{tydz[5:]}: {fmt(v)}" for tydz, v in ostatnie) + f" | {fmt(m_ost)} | {kier} |")
+            if biezacy:
+                v = biezacy[1][kol]
+                strz = tokeny.strzalka(m_ost, v)
+                if kol in tokeny.SUMY_TYGODNIA and strz != "↑":
+                    strz = ""
+                wiersz += f" {fmt(v)} {strz}".rstrip() + " |"
+            l.append(wiersz)
+        if biezacy:
+            l += ["", t("trend_biezacy_opis")]
         gorsze = [e for e, *_, k, _ in wyniki if k.startswith("↑")]
         if gorsze:
             l += ["", t("trend_gorsze", zrodlo=zrodlo) + ", ".join(gorsze) + "."]
@@ -826,8 +895,11 @@ def raport_tokenow(tok: dict, sesje: list) -> list:
     if tok["wybudzenia"]:
         l += ["", t("tok_lista_wybudzen"), ""]
         l += [f"- `{w['czas']:%m-%d %H:%M}` `{w['sesja'].sid[:8]}` "
-              + t("tok_wybudzenie", h=w["przerwa_h"], zapis=tys(w["zapis"]), koszt=w["koszt"])
+              + t("tok_wybudzenie", h=w["przerwa_h"], zapis=tys(w["zapis"]), koszt=w["koszt"],
+                  przyczyna=t("przyczyna_" + w["przyczyna"]))
               for w in tok["wybudzenia"]]
+        l += ["", t("tok_przyczyny", lista=", ".join(
+            f"{t('przyczyna_' + p)} {n}" for p, n in tok["wybudzenia_przyczyny"].items() if n))]
     if tok["nieznane_modele"]:
         l += ["", t("tok_nieznane", lista=", ".join(
             f"`{k}` ({t('tok_wywolan', n=n)})" for k, n in sorted(tok["nieznane_modele"].items())))]
@@ -1034,6 +1106,8 @@ def main(argv=None):
         "commity_bez_sesji": sum(r["commity_bez_sesji"] for r in repo.values()),
         "pr_bez_sesji": sum(r["pr_bez_sesji"] for r in repo.values()),
         "claude_md_linie_osobno": sum(n for _, _, n, osobno in regul if osobno),
+        # od 0.2.1: kto obudził sesję (suma = `wybudzenia`)
+        **{f"wybudzenia_{p}": n for p, n in tok["wybudzenia_przyczyny"].items()},
     }
     (wyjscie / "metryki.json").write_text(json.dumps(metryki, ensure_ascii=False, indent=2), encoding="utf-8")
 

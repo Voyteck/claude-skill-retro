@@ -25,7 +25,7 @@ czyli katalog sprzed 0.2.0, oznacza polski):
 
 Rozpoznawanie nie zależy od języka: opcję rekomendowaną rozpoznaje w wielu językach („(rekomendowane)”,
 „(Recommended)”, „(recomendado)”, „(empfohlen)”…), zakończone retro to `zakończone`, `completed`, `done` albo
-`closed`, pytanie o fakt oznacza `[fakt]` albo `[fact]`.
+`closed`, pytanie o fakt zaczyna się od `[fakt]` albo `[fact]`.
 
 Instrukcje skillu (`SKILL.md`, `references/`) są po angielsku; to nie zmienia języka retro. Identyfikatory
 zostają polskie w każdym języku: nazwy plików katalogu roboczego (`zobowiazania.md`, `nauki.md`,
