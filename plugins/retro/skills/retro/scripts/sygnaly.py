@@ -58,9 +58,11 @@ WZOR_DLUGI_CIAG = re.compile(r"(?<![A-Za-z0-9+=])[A-Za-z0-9+=]{32,}(?![A-Za-z0-9
 WZOR_HEX = re.compile(r"[0-9a-fA-F]+\Z")
 # Pytanie o fakt znany tylko użytkownikowi (np. „gdzie jestem?”) nie ma opcji rekomendowanej z natury.
 ZNACZNIKI_FAKTU = teksty.ZNACZNIKI_FAKTU
-# Tekst w rekordzie „user”, który nie jest wiadomością właściciela (powiadomienia, briefy innych sesji).
+# Tekst w rekordzie „user”, który nie jest wiadomością właściciela (powiadomienia, briefy innych sesji);
+# sprawdzany po zdjęciu początkowych przypomnień systemowych (`zdejmij_przypomnienia`).
 NIE_WLASCICIEL = ("<local-command", "<task-notification", "[Cross-session", "<cross-session-message",
-                  "<system-reminder", "Background (from the session")
+                  "<system-reminder", "Background (from the session", "<side-sessions-event", "<agent-message",
+                  "Another Claude session", "The app was quit", "Caveat:")
 # Przyczyny wybudzenia: co weszło do sesji tuż przed wywołaniem po przerwie (kolejność = kolumny metryk).
 PRZYCZYNY_WYBUDZEN = ("wlasciciel", "tlo", "sesja", "inne")
 INNA_SESJA = ("<agent-message", "<cross-session-message", "[Cross-session", "Another Claude session",
@@ -208,15 +210,22 @@ def klasyfikuj_odpowiedz(odp, q) -> str:
     return "wlasna"
 
 
-def przyczyna_tekstu(tekst: str, pochodzenie, d: dict = None) -> str:
-    """Kto stoi za tekstem wejścia: wlasciciel / tlo (zadanie lub podagent w tle) / sesja (inna sesja) / inne.
-    Przypomnienia systemowe na początku są zdejmowane, bo aplikacja dokleja je także do wiadomości właściciela."""
+def zdejmij_przypomnienia(tekst: str) -> tuple:
+    """(treść przypomnień, reszta): zdejmuje bloki `<system-reminder>` z początku tekstu, bo aplikacja dokleja je
+    także do wiadomości właściciela (np. „Linked sessions now…”). Reszta bez odstępów na początku."""
     reszta = tekst.lstrip()
     przypomnienia = ""
     while reszta.startswith("<system-reminder>") and "</system-reminder>" in reszta:
         blok, _, reszta = reszta.partition("</system-reminder>")
         przypomnienia += blok
         reszta = reszta.lstrip()
+    return przypomnienia, reszta
+
+
+def przyczyna_tekstu(tekst: str, pochodzenie, d: dict = None) -> str:
+    """Kto stoi za tekstem wejścia: wlasciciel / tlo (zadanie lub podagent w tle) / sesja (inna sesja) / inne.
+    Przypomnienia systemowe na początku są zdejmowane, bo aplikacja dokleja je także do wiadomości właściciela."""
+    przypomnienia, reszta = zdejmij_przypomnienia(tekst)
     if (pochodzenie == "task-notification" or reszta.startswith("<task-notification")
             or "[Subagent hand-back]" in reszta[:400]):
         return "tlo"
@@ -224,7 +233,7 @@ def przyczyna_tekstu(tekst: str, pochodzenie, d: dict = None) -> str:
         return "sesja"
     if not reszta:
         return "sesja" if re.search(r"\bsessions?\b", przypomnienia, re.IGNORECASE) else "inne"
-    if (reszta.startswith(NIE_WLASCICIEL + ("The app was quit",)) or (d or {}).get("entrypoint") == "sdk-cli"
+    if (reszta.startswith(NIE_WLASCICIEL) or (d or {}).get("entrypoint") == "sdk-cli"
             or pochodzenie not in ("human", None)):
         return "inne"
     return "wlasciciel"
@@ -383,11 +392,11 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
             if typ == "attachment":
                 # Wiadomość wysłana w trakcie pracy Claude'a: wchłonięta w turę, bez własnego rekordu „user”.
                 zal = d.get("attachment") or {}
+                polecenie = zdejmij_przypomnienia(zal["prompt"])[1] if isinstance(zal.get("prompt"), str) else ""
                 if (zal.get("type") == "queued_command" and (zal.get("origin") or {}).get("kind") == "human"
                         and d.get("entrypoint") != "sdk-cli"
-                        and isinstance(zal.get("prompt"), str) and zal["prompt"].strip()
-                        and not zal["prompt"].lstrip().startswith(NIE_WLASCICIEL)):
-                    wiadomosc_wlasciciela(zal["prompt"], czas, w_trakcie=True)
+                        and polecenie.strip() and not polecenie.startswith(NIE_WLASCICIEL)):
+                    wiadomosc_wlasciciela(polecenie, czas, w_trakcie=True)
                 continue
             if typ != "user":
                 continue
@@ -432,6 +441,7 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                         s.bledy[(nazwa, klucz)] += 1
                 continue
 
+            tekst = zdejmij_przypomnienia(tekst)[1]     # sam blok przypomnienia to nie wiadomość
             if "Request interrupted by user" in tekst:
                 s.licz["przerwania"] += 1
                 s.zdarzenia.append((czas, "przerwanie", {"poprzedzone": skroc(ostatni_tekst_asystenta, 250)}))
