@@ -23,7 +23,13 @@ WZOR_REKOMENDACJI = re.compile(
     re.IGNORECASE,
 )
 # Pytanie o fakt znany tylko użytkownikowi („w jakiej sieci jesteś?”): nie ma opcji rekomendowanej z natury.
+# Znacznik liczy się tylko na początku pytania; „[fakt]” w cytacie w środku treści nie robi z decyzji faktu.
 ZNACZNIKI_FAKTU = ("[fakt]", "[fact]")
+
+
+def pytanie_o_fakt(pytanie: str) -> bool:
+    """Czy treść pytania zaczyna się (po ewentualnych odstępach) znacznikiem faktu."""
+    return (pytanie or "").lstrip().lower().startswith(ZNACZNIKI_FAKTU)
 # Status zakończonego retro w pliku `retro/RNN-RRRR-MM-DD.md` (szablony: pl „zakończone”, en „completed”).
 WZOR_ZAKONCZONE = re.compile(r"\*\*Status:\*\*\s*(zakończone|zakonczone|completed|done|closed)\b", re.IGNORECASE)
 # To samo dla `git log -G` (POSIX ERE, bez \b i flag).
@@ -61,10 +67,10 @@ TEKSTY = {
     "proj_os": {"pl": "## Oś czasu", "en": "## Timeline"},
     "proj_legenda": {
         "pl": "Legenda: **[K?]** = heurystycznie możliwa korekta; klasy odpowiedzi: rekomendowana / inna / własna "
-              "(tekst spoza opcji) / odłożone / bez wyboru / fakt (pytanie z „[fakt]” albo „[fact]”).",
+              "(tekst spoza opcji) / odłożone / bez wyboru / fakt (pytanie zaczynające się od „[fakt]” albo „[fact]”).",
         "en": "Legend: **[C?]** = possible correction (heuristic); answer classes: rekomendowana (recommended) / inna "
               "(other option) / wlasna (own text outside the options) / odlozone (dismissed) / bez_wyboru (no "
-              "preference) / fakt (question marked “[fact]” or “[fakt]”)."},
+              "preference) / fakt (question starting with “[fact]” or “[fakt]”)."},
     "w_trakcie": {"pl": " (w trakcie pracy Claude'a)", "en": " (while Claude was working)"},
     "wlasciciel": {"pl": "Właściciel", "en": "Owner"},
     "wczesniej_claude": {"pl": "  - ↳ wcześniej Claude: _{tekst}_", "en": "  - ↳ Claude before: _{tekst}_"},
@@ -107,6 +113,14 @@ TEKSTY = {
     "trend_kolumny": {
         "pl": "| wskaźnik | mediana wcześniej (tyg.) | ostatnie tygodnie | mediana ostatnich | kierunek |",
         "en": "| indicator | earlier median (weeks) | recent weeks | recent median | direction |"},
+    "trend_kolumna_biezacy": {"pl": " tydzień {tydzien} (niezakończony)", "en": " week {tydzien} (not finished)"},
+    "trend_biezacy_opis": {
+        "pl": "Ostatnia kolumna: bieżący tydzień, jeszcze niezakończony i poza porównaniem. Strzałka przy nim (wobec "
+              "mediany ostatnich tygodni) pokazuje świeżą poprawkę albo pogorszenie od razu; to kilka dni danych, więc "
+              "wskazówka, nie wynik. Sumy tygodnia (koszt tygodnia, koszt wybudzeń) jeszcze rosną: przy nich tylko ↑.",
+        "en": "Last column: the current week, not finished yet and outside the comparison. Its arrow (against the "
+              "recent median) shows a fresh improvement or deterioration at once; it is a few days of data, so a hint, "
+              "not a result. Weekly sums (weekly cost, wake-up cost) are still growing: they only get ↑."},
     "trend_gorsze": {"pl": "**Pogarsza się ({zrodlo}):** ", "en": "**Getting worse ({zrodlo}):** "},
     "trend_bez": {"pl": "pominięty (`--bez-trendu` albo brak katalogu roboczego)",
                   "en": "skipped (`--bez-trendu` or no working directory)"},
@@ -170,7 +184,18 @@ TEKSTY = {
     "tok_modele": {"pl": "Koszt wg modelu: ", "en": "Cost by model: "},
     "tok_drogie": {"pl": "Najdroższe sesje:", "en": "Most expensive sessions:"},
     "tok_lista_wybudzen": {"pl": "Wybudzenia (koszt samego zapisu cache):", "en": "Wake-ups (cost of the cache write only):"},
-    "tok_wybudzenie": {"pl": "po {h:.1f} h: zapis {zapis}, ${koszt:.2f}", "en": "after {h:.1f} h: write {zapis}, ${koszt:.2f}"},
+    "tok_wybudzenie": {"pl": "po {h:.1f} h: zapis {zapis}, ${koszt:.2f}; obudziło: {przyczyna}",
+                       "en": "after {h:.1f} h: write {zapis}, ${koszt:.2f}; woken by: {przyczyna}"},
+    "tok_przyczyny": {
+        "pl": "Kto obudził sesję (pierwsze wejście po przerwie): {lista}. Hook na wiadomość właściciela "
+              "(`UserPromptSubmit`) widzi tylko pierwszą przyczynę; zadania w tle i inne sesje budzą sesję bez niego.",
+        "en": "What woke the session (first input after the break): {lista}. A hook on the owner's message "
+              "(`UserPromptSubmit`) sees only the first cause; background tasks and other sessions wake it without one."},
+    "przyczyna_wlasciciel": {"pl": "wiadomość właściciela", "en": "owner's message"},
+    "przyczyna_tlo": {"pl": "zadanie lub podagent w tle", "en": "background task or subagent"},
+    "przyczyna_sesja": {"pl": "inna sesja", "en": "another session"},
+    "przyczyna_inne": {"pl": "inne (np. wynik narzędzia po długim czekaniu)",
+                       "en": "other (e.g. a tool result after a long wait)"},
     "tok_nieznane": {
         "pl": "**Uwaga:** modeli bez ceny w cenniku nie wliczono do kosztu: {lista}. Dopisz je do pola `cennik` "
               "w konfiguracji albo do `references/cennik.json` w repo pluginu.",

@@ -23,7 +23,7 @@ committed or lives outside git: window from midnight (the summary says where the
 | `wlasna` | the user typed their own answer outside the options: often a change of direction, read it in the timeline |
 | `odlozone` | the question was closed without an answer ("[User dismissed …]") |
 | `bez_wyboru` | the answer "[No preference]" |
-| `fakt` | a question with `[fact]` or `[fakt]` in its text: about a fact only the user knows (e.g. "which network are you on?"); the answer, even as own text, is not a correction |
+| `fakt` | a question starting with `[fact]` or `[fakt]` (leading spaces allowed): about a fact only the user knows (e.g. "which network are you on?"); the answer, even as own text, is not a correction. Since 0.2.1 the marker counts only at the start: a decision that quotes "[fakt]" in its text is an ordinary question |
 | `bez_rekomendacji` | the question had no option marked as recommended (fact questions excluded since 0.1.3) |
 
 The share of `rekomendowana` shows how well Claude predicts the user's decisions. `wlasna` and `odlozone` are the
@@ -62,9 +62,10 @@ Columns since 0.1.3 (in `metryki.csv` at the end, after `zobowiazania_aktywne`; 
 | `kontekst_startowy_mediana` | median context of the first call of sessions started in the window | fixed overhead: system prompt, tools, skills, MCP, CLAUDE.md, memory; a session with copies of another session's calls (fork) is excluded |
 | `podagenci_koszt_proc` | subagents' share of the cost | |
 | `podagenci_opus_koszt_proc` | Opus's share of the subagents' cost | counting subagents by number misleads: Opus is often a minority of subagent calls and the majority of their cost |
-| `wybudzenia`, `wybudzenia_koszt_usd` | main-session calls with a cache write > 50k after a break > 1 h since its previous call; cost of the write alone | usually a closing question ("can I archive?") to a long session; listed in the summary |
+| `wybudzenia`, `wybudzenia_koszt_usd` | main-session calls with a cache write > 50k after a break > 1 h since its previous call; cost of the write alone | a closing question ("can I archive?") to a long session, or a background task finishing hours later; listed in the summary with the cause |
 | `commity_bez_sesji`, `pr_bez_sesji` | commits (committer time) and opened PRs without a local transcript of a session in that repo within ±30 min | work in a sandbox, cloud, another machine, merges on GitHub; the summary warns when it is ≥ 20% (and ≥ 3 commits or ≥ 2 PRs) |
 | `claude_md_linie_osobno` | lines of rules files in `katalogi_regul_osobno` | e.g. copies of `CLAUDE.md` kept in one repo for future repositories |
+| `wybudzenia_wlasciciel`, `wybudzenia_tlo`, `wybudzenia_sesja`, `wybudzenia_inne` (since 0.2.1) | `wybudzenia` split by the first input after the break: the user's message; a background task or subagent (`<task-notification>`, `queue-operation`, "[Subagent hand-back]"); another session (`peer`, `<agent-message>`, `<cross-session-message>`, `<side-sessions-event>`, a system reminder about sessions); anything else (e.g. a tool result after a long foreground wait or API retries) | a hook on the user's message (`UserPromptSubmit`) can only act on the first kind; system reminders the app prepends to a message are skipped when classifying |
 
 ## Tokens and cost
 
@@ -132,7 +133,10 @@ time.
 - **Trend in the summary:** the last 4 completed weeks with activity against the median of the 8 earlier ones,
   separately for each source. The recent median higher by more than 20% = **↑ worse** („↑ pogorszenie”), lower =
   ↓ better; with fewer than 3 earlier weeks "not enough data". Weeks with 1–2 sessions are noisy: the arrow is a
-  hint, the evidence is that week's sessions.
+  hint, the evidence is that week's sessions. Since 0.2.1 the current, unfinished week (when it has activity) is
+  shown in an extra last column ("not finished" / „niezakończony”) with an arrow against the recent median, so that
+  a fresh fix or deterioration is visible at once; it stays outside the comparison. Weekly sums (`koszt_api_usd`,
+  `wybudzenia_koszt_usd`) still grow during the week, so there they only get ↑.
 - **User's messages** in the trend are counted as in the timelines (without `/…` commands, notifications, messages
   and briefs from other sessions, `claude -p` prompts; a screenshot alone is a message).
 

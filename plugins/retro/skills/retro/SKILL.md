@@ -103,14 +103,18 @@ Tokens and cost of local sessions are computed by the script (the summary sectio
 i koszt”): cost at API prices as a relative measure, cost per message, context, subagents, wake-ups, startup
 context); do not analyse tokens by hand. For the trend take `koszt_na_wiadomosc_usd`, `kontekst_mediana`,
 `kontekst_ponad_200k_proc`, `podagenci_opus_koszt_proc`, `wybudzenia` and `kontekst_startowy_mediana`; the most
-expensive sessions and wake-ups listed in the summary are evidence for the "what did not work" section. Local
+expensive sessions and wake-ups listed in the summary are evidence for the "what did not work" section. Each wake-up
+has its cause (the user's message, a background task or subagent, another session, other): propose a remedy that
+fits the cause, e.g. a hook on the user's message does not help against wake-ups by background tasks. Local
 tokens do not cover work in a sandbox or in the cloud: when the repo has usage records from those environments
 (e.g. an export from another tool), take the cost per merged PR from them.
 
 Also read the "Token trend" („Trend tokenów”) section: week by week from `tokeny-tydzien.csv` (the script appends
 new weeks and overwrites the incomplete one), the last 4 weeks against the median of the 8 earlier ones. Put an
 indicator marked **↑ worse** („↑ pogorszenie”) into "what did not work" with the numbers from the table and look
-for the cause in the window's most expensive sessions; "not enough data" („za mało danych”) is not a signal. Rows
+for the cause in the window's most expensive sessions; "not enough data" („za mało danych”) is not a signal. Before
+reporting an arrow, check the last column (the current, unfinished week): when a fix made this week already shows
+there, say the arrow describes the state before the fix. Rows
 from other sources (e.g. `zrodlo=sandbox`) have their own table; do not add them to the local ones. A remote
 source from the configuration (`zrodla_zdalne`) is read once by the script; when the summary shows "not read"
 („brak odczytu”), do not retry the connection or probe the machine. Give the user a ready command to run
@@ -175,7 +179,7 @@ analysis depends on the answer.
 The retro does not do these things itself; you ask about each item in step 4.
 
 **Convention to offer:** a question about a fact only the user knows ("which network are you on?") has no
-recommended option by nature. Marking it `[fact]` (or `[fakt]`) in the question text makes the signals count it
+recommended option by nature. Starting the question with `[fact]` (or `[fakt]`) makes the signals count it
 in its own class, not as a missing recommendation or a correction. If unmarked fact questions distort the numbers,
 propose the convention as a rule for the user's rules file.
 

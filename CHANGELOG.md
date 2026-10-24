@@ -1,5 +1,26 @@
 # Zmiany
 
+## 0.2.1 · 2026-10-24
+
+Trzy poprawki z retro autora (R04): dokładniejsze sygnały tam, gdzie wnioski z retro okazały się chybione.
+
+- **`pyt_fakt` tylko dla znacznika na początku pytania.** Pytanie liczy się jako „fakt”, gdy jego treść zaczyna
+  się (po ewentualnych odstępach) od `[fakt]` albo `[fact]`. Wcześniej wystarczyło to słowo w dowolnym miejscu, więc
+  decyzja, która cytowała „[fakt]” w treści, trafiała do faktów zamiast do `inna`. Rozpoznawanie: nowa funkcja
+  `teksty.pytanie_o_fakt`.
+- **Wybudzenia z podziałem na przyczynę.** Przyczyną jest pierwsze wejście sesji po przerwie: wiadomość właściciela,
+  zadanie lub podagent w tle (`<task-notification>`, `queue-operation`, „[Subagent hand-back]”), inna sesja (`peer`,
+  `<agent-message>`, `<cross-session-message>`, `<side-sessions-event>`, przypomnienie systemowe o sesjach) albo
+  inne (np. wynik narzędzia po długim czekaniu lub ponowieniach po błędach API). Przypomnienia systemowe doklejane
+  przez aplikację na początku wiadomości są przy tym pomijane. Podsumowanie podaje przyczynę przy każdym
+  wybudzeniu i zestawienie; nowe metryki `wybudzenia_wlasciciel`, `wybudzenia_tlo`, `wybudzenia_sesja`,
+  `wybudzenia_inne` (suma = `wybudzenia`) są dopisane na końcu kolumn `metryki.csv`. Hook na wiadomość właściciela
+  (`UserPromptSubmit`) leczy tylko pierwszą przyczynę; raport pokazuje, ile wybudzeń jest poza jego zasięgiem.
+- **Trend: tydzień niezakończony obok porównania.** Tabela trendu ma ostatnią kolumnę z bieżącym tygodniem (jeśli
+  była w nim aktywność) i strzałką wobec mediany ostatnich tygodni, żeby świeża poprawka albo pogorszenie były
+  widoczne od razu, a strzałka porównania nie była brana za stan po poprawce. Sumy tygodnia (koszt tygodnia, koszt
+  wybudzeń) jeszcze rosną, więc dostają tylko „↑”. Tydzień nadal nie wchodzi do porównania.
+
 ## 0.2.0 · 2026-10-22
 
 Wielojęzyczność: plugin nadaje się dla osób, które nie piszą po polsku.

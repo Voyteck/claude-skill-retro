@@ -25,7 +25,7 @@ The retro talks and writes in the language chosen on first run (`jezyk` in `konf
 
 Recognition does not depend on the language: an option marked as recommended is recognized in many languages
 ("(Recommended)", „(rekomendowane)”, "(recomendado)", "(empfohlen)", …), a completed retro is `zakończone`,
-`completed`, `done` or `closed`, a question about a fact is marked `[fact]` or `[fakt]`.
+`completed`, `done` or `closed`, a question about a fact starts with `[fact]` or `[fakt]`.
 
 Identifiers stay Polish in every language: file names in the working directory (`zobowiazania.md`, `nauki.md`,
 `konfiguracja.json`), configuration keys, CSV columns, script names and arguments. Code comments are in Polish

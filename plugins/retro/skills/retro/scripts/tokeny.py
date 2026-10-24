@@ -42,6 +42,8 @@ WSKAZNIKI_TRENDU = [
     "koszt_na_wiad", "wywolania_na_wiad", "kontekst_mediana", "proc_wywolan_ponad_200k", "wybudzenia_koszt_usd",
     "proc_kosztu_podagentow_opus", "kontekst_startowy_mediana", "koszt_api_usd",
 ]
+# Sumy tygodnia: w tygodniu niezakończonym jeszcze rosną, więc „↓” byłoby przedwczesne.
+SUMY_TYGODNIA = {"wybudzenia_koszt_usd", "koszt_api_usd"}
 OSTATNIE_TYGODNIE, WCZESNIEJSZE_TYGODNIE, PROG_ZMIANY = 4, 8, 0.2
 
 
@@ -422,6 +424,32 @@ def liczba(x):
         return None
 
 
+def strzalka(odniesienie, wartosc) -> str:
+    """„↑” (więcej o ponad PROG_ZMIANY), „↓”, „≈” albo "" bez danych."""
+    if odniesienie is None or wartosc is None:
+        return ""
+    if odniesienie == 0:
+        return "↑" if wartosc > 0 else "≈"
+    if wartosc > odniesienie * (1 + PROG_ZMIANY):
+        return "↑"
+    if wartosc < odniesienie * (1 - PROG_ZMIANY):
+        return "↓"
+    return "≈"
+
+
+def tydzien_niezakonczony(wiersze: list, zrodlo: str = ZRODLO, dzis: dt.date = None):
+    """(tydzień, {wskaźnik: wartość}) bieżącego, niezakończonego tygodnia źródła z aktywnością albo None.
+    `trend` go pomija; podsumowanie pokazuje go obok, żeby świeża zmiana była widoczna od razu."""
+    dzis = dzis or dt.date.today()
+    biezace = [w for w in wiersze if (w.get("zrodlo") or ZRODLO) == zrodlo and w.get("tydzien")
+               and dt.date.fromisoformat(w["tydzien"]) + dt.timedelta(days=6) >= dzis
+               and (liczba(w.get("wywolania_api")) or 0) > 0]
+    if not biezace:
+        return None
+    w = max(biezace, key=lambda w: w["tydzien"])
+    return w["tydzien"], {kol: liczba(w.get(kol)) for kol in WSKAZNIKI_TRENDU}
+
+
 def trend(wiersze: list, zrodlo: str = ZRODLO, dzis: dt.date = None) -> list:
     """[(etykieta, mediana wcześniejszych, [(tydzień, wartość)] ostatnich, mediana ostatnich, kierunek, liczba
     wcześniejszych)] dla zakończonych tygodni źródła z aktywnością: ostatnie OSTATNIE_TYGODNIE wobec mediany
@@ -441,13 +469,7 @@ def trend(wiersze: list, zrodlo: str = ZRODLO, dzis: dt.date = None) -> list:
         m_wcz = statistics.median(v for _, v in wczesniej) if wczesniej else None
         if m_ost is None or m_wcz is None or len(wczesniej) < 3:
             kierunek = t("kier_malo")
-        elif m_wcz == 0:
-            kierunek = t("kier_gorzej") if m_ost > 0 else "≈"
-        elif m_ost > m_wcz * (1 + PROG_ZMIANY):
-            kierunek = t("kier_gorzej")
-        elif m_ost < m_wcz * (1 - PROG_ZMIANY):
-            kierunek = t("kier_lepiej")
         else:
-            kierunek = "≈"
+            kierunek = {"↑": t("kier_gorzej"), "↓": t("kier_lepiej"), "≈": "≈"}[strzalka(m_wcz, m_ost)]
         wynik.append((etykieta, m_wcz, ostatnie, m_ost, kierunek, len(wczesniej)))
     return wynik

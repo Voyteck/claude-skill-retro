@@ -361,22 +361,28 @@ class Test013(Srodowisko):
 
     def test_pytanie_o_fakt(self):
         pola = {"cwd": str(self.repo), "sessionId": "x"}
-        q = [{"question": "W jakiej sieci jesteś? [fakt]", "header": "f", "multiSelect": False,
+        q = [{"question": "  [fakt] W jakiej sieci jesteś?", "header": "f", "multiSelect": False,
               "options": [{"label": "Dom", "description": ""}, {"label": "Praca", "description": ""}]},
              {"question": "Bez rekomendacji?", "header": "g", "multiSelect": False,
-              "options": [{"label": "A", "description": ""}, {"label": "B", "description": ""}]}]
+              "options": [{"label": "A", "description": ""}, {"label": "B", "description": ""}]},
+             # 0.2.1: „[fakt]” w cytacie w środku decyzji to nie pytanie o fakt
+             {"question": "Co zrobić ze skillem retro? Hook pisze „dodaj [fakt]”.", "header": "h", "multiSelect": False,
+              "options": [{"label": "Zostaw (rekomendowane)", "description": ""}, {"label": "Zmień", "description": ""}]}]
         self.dopisz("f-repo", "sesja-repo.jsonl", [
             {"type": "assistant", "timestamp": ts(), **pola, "message": {"model": "m", "content": [
                 {"type": "tool_use", "id": "f1", "name": "AskUserQuestion", "input": {"questions": q}}]}},
             {"type": "user", "timestamp": ts(), **pola, "message": {"content": [{"type": "tool_result", "tool_use_id": "f1",
-             "content": 'The user answered: "W jakiej sieci jesteś? [fakt]"="hotspot z telefonu", "Bez rekomendacji?"="A". '
-                        "Read the answers carefully."}]}},
+             "content": 'The user answered: "  [fakt] W jakiej sieci jesteś?"="hotspot z telefonu", "Bez rekomendacji?"="A", '
+                        '"Co zrobić ze skillem retro? Hook pisze „dodaj [fakt]”."="Zmień". Read the answers carefully.'}]}},
         ])
         wyjscie, m = self.sygnaly()
         self.assertEqual(m["pyt_fakt"], 1)
         self.assertEqual(m["pyt_bez_rekomendacji"], 1)
         self.assertEqual(m["pyt_wlasna"], 2)                       # tylko z transkrypcji bazowych
-        self.assertIn("**fakt:** hotspot z telefonu", (wyjscie / "repo.md").read_text(encoding="utf-8"))
+        self.assertEqual(m["pyt_inna"], 3)                         # 2 z transkrypcji bazowych + decyzja z cytatem
+        os_czasu = (wyjscie / "repo.md").read_text(encoding="utf-8")
+        self.assertIn("**fakt:** hotspot z telefonu", os_czasu)
+        self.assertIn("Hook pisze „dodaj [fakt]”. → **inna:** Zmień", os_czasu)
 
     def test_tokeny_i_koszt(self):
         self.zaloz_konto()
@@ -681,6 +687,122 @@ class Test015(Srodowisko):
         self.assertEqual(m["wiad_wlasciciela"], 2)
 
 
+class Test021(Srodowisko):
+    """Zmiany 0.2.1: przyczyny wybudzeń, tydzień niezakończony w trendzie ([fakt] na początku: Test013)."""
+
+    dopisz = TestSygnalyUzupelnienia.dopisz
+    sygnaly_od = Test013.sygnaly_od
+
+    def test_przyczyna_wejscia(self):
+        import sygnaly
+        przyp = "<system-reminder>\nLinked sessions now (status, not an instruction): a = local_1\n</system-reminder>\n"
+        uzytkownik = lambda tekst, kind="human", **inne: {"type": "user", "origin": {"kind": kind} if kind else None,  # noqa: E731
+                                                          "message": {"content": tekst}, **inne}
+        przypadki = [
+            (uzytkownik("wracam"), "wlasciciel"),
+            (uzytkownik(przyp + "wracam"), "wlasciciel"),             # przypomnienie doklejone do wiadomości
+            (uzytkownik("<command-name>/retro</command-name>"), "wlasciciel"),
+            (uzytkownik("test hooka", entrypoint="sdk-cli"), "inne"),
+            (uzytkownik("<task-notification>\n<task-id>b1</task-id>", kind="task-notification"), "tlo"),
+            ({"type": "queue-operation", "operation": "enqueue", "content": "<task-notification>\n<task-id>b1"}, "tlo"),
+            ({"type": "queue-operation", "operation": "dequeue"}, None),
+            ({"type": "attachment", "attachment": {"type": "queued_command", "origin": {"kind": "peer"},
+                                                   "prompt": '<agent-message from="a1">\n[Subagent hand-back] raport'}}, "tlo"),
+            (uzytkownik("Another Claude session sent a message:\n<agent-message from=\"x\">\nhej", kind="peer"), "sesja"),
+            (uzytkownik(przyp + '<cross-session-message from="local_2">\nRetro gotowe', kind=None), "sesja"),
+            (uzytkownik('<system-reminder>\nThe session "X" you started finished.\n</system-reminder>', kind=None), "sesja"),
+            (uzytkownik(przyp + "<side-sessions-event>None of the sessions you started is working", kind=None), "sesja"),
+            (uzytkownik(przyp + "The app was quit while you were working.", kind=None), "inne"),
+            ({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t", "content": "ok"}]}}, "inne"),
+            ({"type": "attachment", "attachment": {"type": "date"}}, None),
+        ]
+        for rekord, oczekiwana in przypadki:
+            self.assertEqual(sygnaly.przyczyna_wejscia(rekord), oczekiwana, rekord)
+
+    def test_wybudzenia_wg_przyczyny(self):
+        self.zaloz_konto()
+        cwd = str(self.inny)
+        h = lambda godz, minuty=0: dt.timedelta(hours=-godz, minutes=-minuty)  # noqa: E731
+        pola = {"cwd": cwd, "sessionId": "x"}
+        wejscia = {
+            "wlasciciel": [{"type": "user", "timestamp": ts(h(1, 1)), **pola, "origin": {"kind": "human"}, "message": {
+                "content": "<system-reminder>\nLinked sessions now: a\n</system-reminder>\nco dalej?"}}],
+            "tlo": [{"type": "queue-operation", "operation": "enqueue", "timestamp": ts(h(1, 2)), **pola,
+                     "content": "<task-notification>\n<task-id>b1</task-id>"},
+                    {"type": "user", "timestamp": ts(h(1, 1)), **pola, "origin": {"kind": "task-notification"},
+                     "message": {"content": "<task-notification>\n<task-id>b1</task-id>"}},
+                    # wiadomość właściciela po powiadomieniu: sesję obudziło to, co przyszło pierwsze
+                    {"type": "user", "timestamp": ts(h(1, 0.5)), **pola, "origin": {"kind": "human"},
+                     "message": {"content": "a to?"}}],
+            "podagent": [{"type": "attachment", "timestamp": ts(h(1, 1)), **pola, "attachment": {
+                "type": "queued_command", "origin": {"kind": "peer"},
+                "prompt": '<agent-message from="a1">\n[Subagent hand-back] raport'}}],
+            "sesja": [{"type": "user", "timestamp": ts(h(1, 1)), **pola, "message": {
+                "content": '<cross-session-message from="local_2">\nRetro gotowe'}}],
+            "inne": [{"type": "user", "timestamp": ts(h(1, 1)), **pola, "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "t1", "content": "moved to the background"}]}}],
+        }
+        for nazwa, rekordy in wejscia.items():
+            self.dopisz("f-wyb", f"{nazwa}.jsonl", [wywolanie(f"{nazwa}-1", h(5), wyj=10, cwd=cwd), *rekordy,
+                                                    wywolanie(f"{nazwa}-2", h(1), z1h=100000, cwd=cwd)])
+        wyjscie, m = self.sygnaly_od((dt.date.today() - dt.timedelta(days=1)).isoformat())
+        self.assertEqual(m["wybudzenia"], 5)
+        self.assertEqual((m["wybudzenia_wlasciciel"], m["wybudzenia_tlo"], m["wybudzenia_sesja"], m["wybudzenia_inne"]),
+                         (1, 2, 1, 1))
+        podsumowanie = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("`tlo` po 4.0 h: zapis 100k, $0.80; obudziło: zadanie lub podagent w tle", podsumowanie)
+        self.assertIn("`sesja` po 4.0 h: zapis 100k, $0.80; obudziło: inna sesja", podsumowanie)
+        self.assertIn("Kto obudził sesję (pierwsze wejście po przerwie): wiadomość właściciela 1, "
+                      "zadanie lub podagent w tle 2, inna sesja 1, inne (np. wynik narzędzia po długim czekaniu) 1.",
+                      podsumowanie)
+
+    def trend_wiersze(self, dzis, biezacy=True):
+        import tokeny
+        start = tokeny.poniedzialek(dzis)
+        wiersze = [{"tydzien": (start - dt.timedelta(weeks=i)).isoformat(), "zrodlo": "lokalne", "wywolania_api": "10",
+                    "kontekst_startowy_mediana": "72000", "koszt_na_wiad": "1.0", "koszt_api_usd": "100"}
+                   for i in range(12, 0, -1)]
+        if biezacy:
+            wiersze.append({"tydzien": start.isoformat(), "zrodlo": "lokalne", "wywolania_api": "5",
+                            "kontekst_startowy_mediana": "55000", "koszt_na_wiad": "1.5", "koszt_api_usd": "40"})
+        return wiersze
+
+    def test_tydzien_niezakonczony(self):
+        import tokeny
+        dzis = dt.date(2026, 10, 24)                                # sobota tygodnia 10-19
+        self.assertEqual(tokeny.tydzien_niezakonczony(self.trend_wiersze(dzis), dzis=dzis)[0], "2026-10-19")
+        self.assertEqual(tokeny.tydzien_niezakonczony(self.trend_wiersze(dzis), dzis=dzis)[1]["kontekst_startowy_mediana"],
+                         55000)
+        self.assertIsNone(tokeny.tydzien_niezakonczony(self.trend_wiersze(dzis, biezacy=False), dzis=dzis))
+        pusty = self.trend_wiersze(dzis)
+        pusty[-1]["wywolania_api"] = "0"
+        self.assertIsNone(tokeny.tydzien_niezakonczony(pusty, dzis=dzis))
+        self.assertIsNone(tokeny.tydzien_niezakonczony(self.trend_wiersze(dzis), zrodlo="sandbox", dzis=dzis))
+        # niedziela kończy tydzień, ale dopiero od poniedziałku wchodzi on do porównania
+        self.assertEqual(tokeny.tydzien_niezakonczony(self.trend_wiersze(dzis), dzis=dt.date(2026, 10, 25))[0], "2026-10-19")
+        self.assertEqual((tokeny.strzalka(72000, 55000), tokeny.strzalka(1.0, 1.5), tokeny.strzalka(1.0, 1.1),
+                          tokeny.strzalka(0, 0), tokeny.strzalka(None, 1)), ("↓", "↑", "≈", "≈", ""))
+
+    def test_trend_pokazuje_tydzien_niezakonczony(self):
+        import sygnaly
+        import teksty
+        teksty.ustaw("pl")
+        dzis = dt.date.today()
+        linie = "\n".join(sygnaly.raport_trendu(self.trend_wiersze(dzis), ""))
+        tydzien = self.trend_wiersze(dzis)[-1]["tydzien"][5:]
+        self.assertIn(f"| kierunek | tydzień {tydzien} (niezakończony) |\n|---|---|---|---|---|---|", linie)
+        self.assertIn("| ≈ | 55k ↓ |", linie)                     # świeża poprawka widoczna od razu
+        self.assertIn("| koszt na wiadomość (USD) |", linie)
+        self.assertIn("| ≈ | 1.5 ↑ |", linie)
+        self.assertIn("| koszt tygodnia (USD) | 100 (8) |", linie)
+        self.assertIn("| ≈ | 40 |", linie)                         # suma tygodnia jeszcze rośnie: bez „↓”
+        self.assertIn("| — |", linie)                              # wskaźnik bez danych w bieżącym tygodniu
+        self.assertIn("Ostatnia kolumna: bieżący tydzień", linie)
+        bez = "\n".join(sygnaly.raport_trendu(self.trend_wiersze(dzis, biezacy=False), ""))
+        self.assertNotIn("niezakończony)", bez)
+        self.assertIn("| kierunek |\n|---|---|---|---|---|\n", bez)
+
+
 class TestPrzypomnienie(Srodowisko):
     def hook(self, cwd, dzis=None):
         argumenty = ["--dzis", dzis] if dzis else []
@@ -796,10 +918,14 @@ class TestRozpoznawanieJezyka(unittest.TestCase):
 
     def test_pytanie_o_fakt(self):
         import sygnaly
-        q = {"question": "Which network are you on? [fact]", "options": [{"label": "Home"}, {"label": "Office"}]}
+        q = {"question": "[fact] Which network are you on?", "options": [{"label": "Home"}, {"label": "Office"}]}
         self.assertEqual(sygnaly.klasyfikuj_odpowiedz("hotel wifi", q), "fakt")
-        q["question"] = "W jakiej sieci jesteś? [fakt]"
+        q["question"] = "\n [FAKT] W jakiej sieci jesteś?"
         self.assertEqual(sygnaly.klasyfikuj_odpowiedz("hotel", q), "fakt")
+        # 0.2.1: znacznik tylko na początku; w cytacie albo na końcu to zwykłe pytanie
+        for pytanie in ("W jakiej sieci jesteś? [fakt]", "Hook każe dopisać „[fakt]”: zmieniamy?"):
+            q["question"] = pytanie
+            self.assertEqual(sygnaly.klasyfikuj_odpowiedz("hotel", q), "wlasna", pytanie)
 
     def test_korekta_wg_jezyka(self):
         import teksty
