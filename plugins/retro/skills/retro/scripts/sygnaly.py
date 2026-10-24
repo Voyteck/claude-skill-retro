@@ -28,6 +28,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import wspolne  # noqa: E402
 import teksty  # noqa: E402
 import tokeny  # noqa: E402
+import efektywnosc  # noqa: E402
+import zdarzenia_agentow  # noqa: E402
 from teksty import t  # noqa: E402
 from tokeny import (PROG_DUZEGO_KONTEKSTU, PROG_WYBUDZENIA_H, PROG_WYBUDZENIA_TOKENY,  # noqa: E402,F401
                     czas_lokalny, dodaj_wywolanie, koszt_wywolania, stawki, wczytaj_cennik, wywolanie_api)
@@ -469,8 +471,10 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                         if not model_w_oknie:
                             model = d["message"]["model"]
                             model_w_oknie = w_oknie
-                        if czas:
-                            dodaj_wywolanie(s.wywolania, wywolanie_api(d, czas, True))
+                        wynik = wywolanie_api(d, czas, True) if czas else None
+                        if wynik:
+                            wynik[1]["agent"] = typ_ag      # rola agenta w koszcie (efektywnosc.py)
+                            dodaj_wywolanie(s.wywolania, wynik)
                     if d.get("type") == "user" and "denied by the Claude Code auto mode classifier" in linia:
                         if czas and od <= czas < do:
                             s.licz["blokady_u_podagentow"] += 1
@@ -579,6 +583,7 @@ def metryki_tokenow(sesje: list, od, do, cennik: dict) -> dict:
         "wybudzenia": sorted(wybudzenia, key=lambda w: w["czas"]),
         "wybudzenia_przyczyny": {p: sum(w["przyczyna"] == p for w in wybudzenia) for p in PRZYCZYNY_WYBUDZEN},
         "nieznane_modele": {m: n for m, n in nieznane.items() if n},
+        "wywolania_okna": w_oknie,
         "sesje_startowe": len(startowe),
         "cennik_stan_na": cennik.get("stan_na", "?"),
     }
@@ -934,6 +939,48 @@ def zakonczenie_retro(katalog, od_data):
     return najpozniej
 
 
+def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh, sesje, od, do, od_data, do_data):
+    """Dane sekcji „Tokeny i efektywność pisania”: koszt wg roli (z archiwów trendu), rundy poprawek scalonych PR
+    (GitHub, kilka tygodni wstecz), powroty od przeglądu i CI (zdarzenia agentów lokalnie i ze źródeł zdalnych)."""
+    wzorce, uwagi = efektywnosc.wzorce_rol(konf), []
+    tygodnie = int(konf.get("efektywnosc_tygodnie") or efektywnosc.TYGODNIE)
+    od_tygodnia = min(tokeny.poniedzialek(do_data) - dt.timedelta(weeks=tygodnie - 1), tokeny.poniedzialek(od_data))
+    koszty = [(nazwa, *efektywnosc.koszt_wg_roli(ar.get("calls") or {}, cennik, wzorce, od_tygodnia))
+              for nazwa, ar in archiwa]
+    if not archiwa:
+        uwagi.append(t("ef_koszt_bez_trendu"))
+    rundy = None
+    if gh:
+        rundy = []
+        for nazwa, r in repo.items():
+            if r["gh"] == t("gh_brak_zdalnego"):
+                continue
+            lista, blad = efektywnosc.pr_commity(repozytoria[nazwa], od_tygodnia, do_data, gh)
+            if lista is None:
+                uwagi.append(t("ef_gh_blad", repo=nazwa, blad=zamaz(blad)[0]))
+                continue
+            rundy += efektywnosc.rundy_pr(lista, konf)
+    else:
+        uwagi.append(t("ef_gh_pominiety"))
+    # zdarzenia agentów: lokalne transkrypcje (sesje w zakresie retro) i źródła zdalne z `zdarzenia_*`
+    w_zakresie = {s.sid[:8] for s in sesje}
+    lokalne = zdarzenia_agentow.zbierz(katalogi_transkrypcji(konf), (od_data - dt.timedelta(days=1)).isoformat())
+    lokalne["zdarzenia"] = [z for z in lokalne["zdarzenia"] if z["s"] in w_zakresie]
+    powroty = [(tokeny.ZRODLO, *efektywnosc.powroty(lokalne, wzorce, od, do))]
+    for zrodlo in konf.get("zrodla_zdalne") or []:
+        nazwa = str(zrodlo.get("nazwa") or "").strip()
+        if (not nazwa or zrodlo.get("wlaczone") is False or a.bez_zdalnych or katalog is None
+                or not (zrodlo.get("zdarzenia_polecenie") or zrodlo.get("zdarzenia_plik"))):
+            continue
+        dane, opis = tokeny.odczytaj_zrodlo(zrodlo, katalog, prefiks="zdarzenia_", skrypt="zdarzenia_agentow.py")
+        if dane is None:
+            uwagi.append(t("ef_zdarzenia_brak", nazwa=nazwa, opis=zamaz(opis)[0]))
+            continue
+        uwagi.append(t("ef_zdarzenia_ok", nazwa=nazwa, opis=opis, n=len(dane.get("zdarzenia") or [])))
+        powroty.append((nazwa, *efektywnosc.powroty(dane, wzorce, od, do)))
+    return {"wzorce": wzorce, "koszty": koszty, "rundy": rundy, "powroty": powroty, "uwagi": uwagi}
+
+
 def nazwa_pliku(nazwa: str) -> str:
     return re.sub(r"[^\w.-]+", "-", nazwa).strip("-") or "projekt"
 
@@ -1011,7 +1058,7 @@ def main(argv=None):
     tok = metryki_tokenow(sesje, od, do, cennik)
 
     # Trend tygodniowy: cała historia (transkrypcje + archiwum), tylko dla pełnego zakresu (bez --projekt).
-    trend_wiersze, trend_uwaga, zdalne_uwagi = None, "", []
+    trend_wiersze, trend_uwaga, zdalne_uwagi, archiwa = None, "", [], []
     if a.bez_trendu or katalog is None:
         trend_uwaga = t("trend_bez")
     elif wybrane:
@@ -1020,6 +1067,7 @@ def main(argv=None):
         historia, _ = wszystkie_sesje(EPOKA, dt.datetime.now().astimezone() + dt.timedelta(days=1), projekty, konf)
         arch = tokeny.aktualizuj_archiwum(katalog / tokeny.PLIK_ARCHIWUM, [s for s in historia if w_zakresie(s)])
         trend_wiersze = tokeny.zapisz_trend(katalog / tokeny.PLIK_TRENDU, tokeny.wiersze_tygodni(arch, cennik))
+        archiwa.append((tokeny.ZRODLO, arch))
         # Źródła zdalne (`zrodla_zdalne`): osobne archiwum i wiersze `zrodlo=<nazwa>`; jedna próba na źródło.
         for zrodlo in konf.get("zrodla_zdalne") or []:
             nazwa = str(zrodlo.get("nazwa") or "").strip()
@@ -1034,6 +1082,7 @@ def main(argv=None):
                 continue
             plik_arch = katalog / tokeny.PLIK_ARCHIWUM.parent / f"tokeny-archiwum-{nazwa_pliku(nazwa)}.json"
             arch_z = tokeny.scal_odczyt(plik_arch, odczyt)
+            archiwa.append((nazwa, arch_z))
             trend_wiersze = tokeny.zapisz_trend(katalog / tokeny.PLIK_TRENDU,
                                                 tokeny.wiersze_tygodni(arch_z, cennik, zrodlo=nazwa))
             zdalne_uwagi.append(t("zdalne_ok", nazwa=nazwa, opis=opis, odczyt=len(odczyt.get("calls") or {}),
@@ -1073,6 +1122,7 @@ def main(argv=None):
     else:
         foldery = sorted(p for p in (wspolne.katalog_claude() / "projects").glob("*") if p.is_dir())
     pamiec_liczba, pamiec_zmiany, pamiec_bez_sesji = pamiec(foldery, od, projekty_folderow)
+    ef = efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh, sesje, od, do, od_data, do_data)
 
     suma = collections.Counter()
     for s in sesje:
@@ -1108,6 +1158,8 @@ def main(argv=None):
         "claude_md_linie_osobno": sum(n for _, _, n, osobno in regul if osobno),
         # od 0.2.1: kto obudził sesję (suma = `wybudzenia`)
         **{f"wybudzenia_{p}": n for p, n in tok["wybudzenia_przyczyny"].items()},
+        # od 0.3.0: efektywność pisania (rundy poprawek, powroty, koszt implementacji wg modelu)
+        **efektywnosc.metryki_okna(ef["rundy"], od, do, ef["powroty"], tok["wywolania_okna"], ef["wzorce"]),
     }
     (wyjscie / "metryki.json").write_text(json.dumps(metryki, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -1138,6 +1190,9 @@ def main(argv=None):
     l += ["", t("pods_pory"), ""] + [f"- {k[2]}: {v}" for k, v in sorted(pory.items())]
     l += raport_tokenow(tok, sesje)
     l += raport_trendu(trend_wiersze, trend_uwaga, zdalne_uwagi)
+    porown = efektywnosc.porownanie(katalog / "metryki.csv", metryki) if katalog is not None else ([], [])
+    l += efektywnosc.raport(porown, ef["koszty"], ef["rundy"], od, do, ef["powroty"], ef["uwagi"],
+                            przerwa=konf.get("pr_przerwa_rundy_min") or efektywnosc.PRZERWA_RUNDY_MIN)
     l += ["", t("pods_repo"), "", t("pods_repo_kolumny"),
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for nazwa, r in repo.items():

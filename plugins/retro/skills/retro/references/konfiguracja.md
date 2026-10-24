@@ -21,9 +21,14 @@ defaults from `scripts/wspolne.py` (`DOMYSLNA_KONFIGURACJA`). Change it by hand 
 | `katalogi_regul_osobno` | `[]` | directories relative to the repo root (e.g. `["repo-roots/"]`) whose `CLAUDE.md` files are copies for other repositories: counted separately (`claude_md_linie_osobno`), not in `claude_md_linie`. The summary suggests candidates (a directory with ≥ 3 nested `CLAUDE.md`) |
 | `transkrypcje_dodatkowe` | `[]` | directories with transcripts from other machines (a `projects` directory or a directory containing one) |
 | `cennik` | `{}` | overrides of `references/cennik.json`, same shape: `{"modele": {"claude-x": {"wejscie": 1, "wyjscie": 5, "zapis_5m": 1.25, "zapis_1h": 2, "odczyt": 0.1}}}`, also `mnoznik_fast` and `web_search_za_zapytanie` |
-| `zrodla_zdalne` | `[]` | remote sources for the token trend: `[{"nazwa": "sandbox", "polecenie": ["ssh", "-T", "host", "python3 -"]}]` or `{"nazwa": …, "plik": "dane/sandbox-liczby.json"}`; optionally `wlaczone`, `limit_s`. Details: `references/sygnaly.md`, "Weekly trend" |
+| `zrodla_zdalne` | `[]` | remote sources for the token trend: `[{"nazwa": "sandbox", "polecenie": ["ssh", "-T", "host", "python3 -"]}]` or `{"nazwa": …, "plik": "dane/sandbox-liczby.json"}`; optionally `wlaczone`, `limit_s`; since 0.3.0 also agent events for the efficiency section: `zdarzenia_polecenie` (gets `scripts/zdarzenia_agentow.py` on stdin) or `zdarzenia_plik`. Details: `references/sygnaly.md`, "Weekly trend" and "Tokens and writing efficiency" |
 | `rejestry_pytan` | `[]` | files with open questions to people outside the team (section 8a) |
 | `gh` | `null` | path to `gh` when it is not in PATH |
+| `role_agentow` | `{}` (= built-in) | agent roles by subagent type, regular expressions, first match wins: `{"implementacja": ["programista", "implement", "developer", "coder", "engineer"], "przeglad": ["przeglad", "przegląd", "review", "tester", "qa", "audit"], "ci": ["obserwator", "\\bci\\b", "watch"], "architekt": ["architekt", "architect"]}`; the main session is `sesja`, an unmatched subagent `inne`. A custom role name is shown as is |
+| `efektywnosc_tygodnie` | `6` | weeks back in the cost-by-role and fix-round tables |
+| `pr_przerwa_rundy_min` | `20` | a break between commit batches in a PR longer than this starts a new fix round |
+| `pr_max_commitow` | `40` | PRs with more commits are skipped (branch merges, batches) |
+| `pr_pomin_galezie` | `["integration/", "batch/"]` | head branch prefixes skipped in fix rounds (integration batches) |
 
 ## Glossary of identifiers
 

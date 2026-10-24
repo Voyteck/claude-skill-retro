@@ -8,7 +8,8 @@ Co kilka dni roboczych (zalecane: co 2) retro:
 1. **rozlicza zobowiązania** z poprzednich retro: czy były przestrzegane i czy dały efekt;
 2. zbiera **dowody** z transkrypcji Claude Code, gita i GitHuba (wiadomości użytkownika, odpowiedzi na pytania,
    blokady, błędy narzędzi, podagenci, PR-y, CI, rozmiar plików reguł, tokeny i koszt w cenach API: kontekst,
-   udział podagentów i Opusa, wybudzenia długich sesji);
+   udział podagentów i Opusa, wybudzenia długich sesji) i mierzy **efektywność pisania**: koszt wg roli agenta
+   i modelu, rundy poprawek w scalonych PR wg modelu autora, powroty od przeglądu i CI, na tle 3 poprzednich retro;
 3. ocenia, **co działało, a co nie**, także po stronie użytkownika (opcjonalnie);
 4. proponuje **najwyżej 5 zmian**, preferując mechanizmy (testy, hooki, szablony) nad regułami w tekście;
 5. przyjęte zmiany **wdraża** do plików reguł (`CLAUDE.md`, pamięć, `nauki.md`) i rejestru zobowiązań.

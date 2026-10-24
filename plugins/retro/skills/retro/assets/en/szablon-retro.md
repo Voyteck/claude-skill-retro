@@ -13,6 +13,20 @@
 | metric | R(N-2) | R(N-1) | RN | direction |
 |---|---|---|---|---|
 
+## 2a. Tokens and writing efficiency
+
+Source: the "Tokens and writing efficiency" section of the signals summary (mandatory in every retro).
+
+| indicator | R(N-3) | R(N-2) | R(N-1) | RN | better / worse |
+|---|---|---|---|---|---|
+
+- **Better:** … (numbers, cause, evidence)
+- **Worse:** … (numbers, cause, evidence)
+- **Efficiency by implementer model:** PRs with a fix and rounds per PR for each model (Opus, Sonnet, Fable…),
+  returns from review and CI, the model's share of implementation cost; with < 5 PRs of a model only a hint.
+- **Suggestions (2–3):** change · expected effect · measure (e.g. "implement simple PRs on Sonnet as long as the
+  share of PRs with a fix does not grow by more than 10 percentage points over two retros").
+
 ## 3. Commitments review
 
 | ID | commitment | kept | worth it | evidence | proposed verdict |
