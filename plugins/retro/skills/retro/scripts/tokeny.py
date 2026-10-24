@@ -123,7 +123,8 @@ def wywolanie_api(d: dict, czas, podagent: bool):
     w = {"czas": czas, "podagent": podagent, "model": wiad["model"], "ep": d.get("entrypoint"),
          "wejscie": u.get("input_tokens") or 0, "wyjscie": u.get("output_tokens") or 0,
          "zapis_5m": zapis - zapis_1h, "zapis_1h": zapis_1h, "odczyt": u.get("cache_read_input_tokens") or 0,
-         "fast": u.get("speed") == "fast", "web_search": (u.get("server_tool_use") or {}).get("web_search_requests") or 0}
+         "fast": u.get("speed") == "fast", "web_search": (u.get("server_tool_use") or {}).get("web_search_requests") or 0,
+         "effort": d.get("effort") if isinstance(d.get("effort"), str) else None}   # poziom rozumowania (low…max)
     w["kontekst"] = w["wejscie"] + zapis + w["odczyt"]
     return wiad["id"], w
 
@@ -152,6 +153,8 @@ def do_rekordu(w: dict, sid: str) -> dict:
          "speed": "fast" if w["fast"] else "standard", "ws": w["web_search"]}
     if w.get("agent"):                 # typ podagenta (od 0.3.0; jak pole `agent` w `zbierz_liczby.py`)
         r["agent"] = w["agent"]
+    if w.get("effort"):                # poziom rozumowania (od 0.4.0; jak pole `eff` w `zbierz_liczby.py`)
+        r["eff"] = w["effort"]
     return r
 
 
@@ -159,7 +162,8 @@ def z_rekordu(r: dict) -> dict:
     w = {"czas": czas_lokalny(r.get("ts") or ""), "sesja": r.get("s") or "?", "podagent": bool(r.get("sub")),
          "model": r.get("model") or "?", "ep": r.get("ep"), "wejscie": r.get("inp") or 0, "wyjscie": r.get("out") or 0,
          "zapis_5m": r.get("cw5") or 0, "zapis_1h": r.get("cw1h") or 0, "odczyt": r.get("cr") or 0,
-         "fast": r.get("speed") == "fast", "web_search": r.get("ws") or 0, "agent": r.get("agent")}
+         "fast": r.get("speed") == "fast", "web_search": r.get("ws") or 0, "agent": r.get("agent"),
+         "effort": r.get("eff")}
     w["kontekst"] = w["wejscie"] + w["zapis_5m"] + w["zapis_1h"] + w["odczyt"]
     return w
 

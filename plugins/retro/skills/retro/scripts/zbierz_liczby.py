@@ -8,7 +8,7 @@ zdalnie przez stdin, np. z Git Bash albo PowerShell:
 wskazuje pole `plik`.
 
 Argumenty (po `python3 -`): --projekty KATALOG (domyślnie $CLAUDE_CONFIG_DIR/projects albo ~/.claude/projects).
-Wyjście: {"calls": {message.id: {ts, s, sub, model, ep, inp, out, cw5, cw1h, cr, speed, ws, agent, proj}},
+Wyjście: {"calls": {message.id: {ts, s, sub, model, ep, inp, out, cw5, cw1h, cr, speed, ws, agent, proj, eff}},
 "owner": [[czas UTC ISO, sesja]], "compacts": [[czas UTC ISO, sesja]], "cost_state": {sesja: usd},
 "meta": {"format": 2, "czas": "utc", ...}}. Tekst wiadomości użytkownika jest czytany tylko po to, by odróżnić
 właściciela od powiadomień i briefów innych sesji (reguły jak w `sygnaly.py`); nie trafia do wyniku.
@@ -94,6 +94,8 @@ def zbierz(root):
                            "cw5": zapis - zapis_1h, "cw1h": zapis_1h, "cr": u.get("cache_read_input_tokens") or 0,
                            "speed": u.get("speed"), "ws": (u.get("server_tool_use") or {}).get("web_search_requests") or 0,
                            "agent": agent, "proj": czesci[0][:60]}
+                    if isinstance(r.get("effort"), str):     # poziom rozumowania (od 0.4.0)
+                        rec["eff"] = r["effort"]
                     stary = calls.get(mid)
                     if stary is None or rec["out"] >= stary["out"]:
                         if stary is not None:

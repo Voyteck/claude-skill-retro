@@ -70,6 +70,9 @@ Columns since 0.1.3 (in `metryki.csv` at the end, after `zobowiazania_aktywne`; 
 | `pr_wg_modelu`, `pr_z_poprawka_proc_wg_modelu` (since 0.3.0) | the same by author model, as text `Opus:71;Fable:27` (share of PRs, % with a fix) | `bez stopki` = no `Co-Authored-By: Claude` trailer |
 | `powroty_przeglad`, `powroty_ci` (since 0.3.0) | returns of an implementer to the same PR after a negative review or red CI, local transcripts plus remote agent events | the main session fixing its own PR is not a return |
 | `koszt_implementacji_proc_wg_modelu` (since 0.3.0) | model families' share of implementation subagents' cost in the window, `Opus:90;Sonnet:10` | role by `role_agentow` |
+| `pr_powiazane`, `koszt_na_pr_usd` (since 0.4.0) | PRs merged in the window with an implementation subagent found in transcripts; their mean agent cost (implementation, review, CI, fix rounds included) | the expected cost of an accepted PR; main-session cost excluded |
+| `koszt_na_pr_wg_konfiguracji` (since 0.4.0) | the same by implementer configuration, `Opus/high:6.68;Sonnet/medium:1.20` | compare configurations within one PR size in the summary table, not in this sum |
+| `koszt_wg_poziomu` (since 0.4.0) | reasoning efforts' share of the window cost, `high:80;xhigh:18;?:2` | `?` = calls without a recorded effort |
 
 ## Tokens and writing efficiency
 
@@ -78,14 +81,17 @@ section 2a of the retro document.
 
 - **Against previous retros:** `koszt_na_wiadomosc_usd`, `kontekst_mediana`, `kontekst_ponad_200k_proc`,
   `kontekst_startowy_mediana`, `podagenci_opus_koszt_proc`, `wybudzenia_koszt_usd`, `pr_z_poprawka_proc`,
-  `rundy_na_pr`, `powroty_przeglad`, `powroty_ci` from the last 3 rows of `metryki.csv` (a row of the same window,
+  `rundy_na_pr`, `powroty_przeglad`, `powroty_ci`, `koszt_na_pr_usd` from the last 3 rows of `metryki.csv` (a row of the same window,
   when the script is rerun after `dopisz_metryki.py`, is skipped) and now; the arrow compares now with the median of
   the previous ones (more than 20% = arrow; more = worse for every indicator). Retros from before a metric existed
   show "—".
 - **Cost by role and model:** from the trend archives (local and every remote source), week by week for
   `efektywnosc_tygodnie` weeks, at the prices of the current models of each family (like `koszt_api_usd_ceny_55`).
   The role comes from the subagent type: remote archives (`zbierz_liczby.py`) have it since 0.1.5, the local archive
-  since 0.3.0; older local subagent calls whose transcripts are gone count as "other subagents".
+  since 0.3.0; older local subagent calls whose transcripts are gone count as "other subagents". Since 0.4.0 rows
+  also carry the reasoning effort (`effort` of each assistant record: low, medium, high, xhigh, max); the local
+  archive and `zbierz_liczby.py` store it as `eff`, calls without it (older transcripts, remote reads made with an
+  older `zbierz_liczby.py`) have no effort in the label.
 - **Fix rounds in merged PRs:** `gh api graphql` (search, 40 PRs per page, at most 10 pages per repo; `gh pr list
   --json commits` exceeds the GraphQL node limit). Commits sorted by author date (robust to rebase), without merge
   commits; a batch after a break longer than `pr_przerwa_rundy_min` is a round. The author model is the most frequent
@@ -100,10 +106,23 @@ section 2a of the retro document.
   same PR in the same session after a negative review or red CI. Remote machines: `zdarzenia_polecenie` /
   `zdarzenia_plik` in an entry of `zrodla_zdalne` (one attempt, no retries, like the token sources), e.g.
   `cmd /c 'ssh -T <host> python3 - < <skill>/scripts/zdarzenia_agentow.py > <working dir>/dane/<name>-zdarzenia.json'`.
+- **Cost and quality per PR by implementer configuration (since 0.4.0):** each subagent's cost is computed from the
+  token sums of its transcript (current model prices of the family, without the long-context surcharge) and split
+  evenly over the PRs it worked on (PR numbers from its task and from continuations). A PR is matched by (repo, number):
+  local sessions get the repo from their working directory; sessions of a remote source have no repo, so their PRs
+  match by number only when the number is unique among the merged PRs read from GitHub. The configuration is the
+  model and effort of the PR's first implementation agent (effort: the most frequent one in its transcript, else the
+  `effort` requested in the call). Size = additions + deletions from GitHub, buckets `pr_progi_rozmiaru` (S ≤ 50,
+  M ≤ 300, L > 300 lines). Cost per PR = the mean of the agents' cost over the PRs in the cell: it already contains
+  the fix rounds with their frequency, so it is the expected cost of an accepted PR. A PR implemented by the main
+  session ("main session" row) has quality and control cost only. The section also lists the current agent
+  definitions from `.claude/agents/*.md` of the window's repositories and `~/.claude/agents` (`name`, `model`,
+  `effort` from the header) with their role, so a proposed rule can name the file to change.
 - **Limits:** a round is not always a return from the tester (rebase, conflicts of integration batches, the owner's
   remarks); a missing trailer makes the author "no trailer"; verdicts and CI results are a heuristic on free text and
-  the role of an agent depends on its type name; a main session that implements and fixes by itself has no returns;
-  with fewer than 5 PRs of a model the comparison between models is a hint only.
+  the role of an agent depends on its type name; a main session that implements and fixes by itself has no returns
+  and no cost per PR; PRs whose task never mentions their number get no cost; with fewer than 5 PRs in a cell the
+  comparison between configurations is a hint only.
 
 ## Tokens and cost
 

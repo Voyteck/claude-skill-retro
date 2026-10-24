@@ -949,9 +949,11 @@ def zakonczenie_retro(katalog, od_data):
     return najpozniej
 
 
-def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh, sesje, od, do, od_data, do_data):
-    """Dane sekcji „Tokeny i efektywność pisania”: koszt wg roli (z archiwów trendu), rundy poprawek scalonych PR
-    (GitHub, kilka tygodni wstecz), powroty od przeglądu i CI (zdarzenia agentów lokalnie i ze źródeł zdalnych)."""
+def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh, sesje, od, do, od_data, do_data,
+                       projekty):
+    """Dane sekcji „Tokeny i efektywność pisania”: koszt wg roli i poziomu rozumowania (z archiwów trendu), rundy
+    poprawek scalonych PR (GitHub, kilka tygodni wstecz), powroty od przeglądu i CI oraz koszt agentów na PR
+    (zdarzenia agentów lokalnie i ze źródeł zdalnych), konfiguracja agentów z `.claude/agents`."""
     wzorce, uwagi = efektywnosc.wzorce_rol(konf), []
     tygodnie = int(konf.get("efektywnosc_tygodnie") or efektywnosc.TYGODNIE)
     od_tygodnia = min(tokeny.poniedzialek(do_data) - dt.timedelta(weeks=tygodnie - 1), tokeny.poniedzialek(od_data))
@@ -959,7 +961,7 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
               for nazwa, ar in archiwa]
     if not archiwa:
         uwagi.append(t("ef_koszt_bez_trendu"))
-    rundy = None
+    rundy, repo_gh = None, {}
     if gh:
         rundy = []
         for nazwa, r in repo.items():
@@ -969,14 +971,24 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
             if lista is None:
                 uwagi.append(t("ef_gh_blad", repo=nazwa, blad=zamaz(blad)[0]))
                 continue
+            repo_gh[nazwa] = lista[0]["repo"] if lista else None
             rundy += efektywnosc.rundy_pr(lista, konf)
     else:
         uwagi.append(t("ef_gh_pominiety"))
-    # zdarzenia agentów: lokalne transkrypcje (sesje w zakresie retro) i źródła zdalne z `zdarzenia_*`
+    # zdarzenia agentów: lokalne transkrypcje (od początku tygodni tabel) i źródła zdalne z `zdarzenia_*`;
+    # powroty liczone dla sesji okna, koszt na PR dla sesji repo z zakresu retro
     w_zakresie = {s.sid[:8] for s in sesje}
-    lokalne = zdarzenia_agentow.zbierz(katalogi_transkrypcji(konf), (od_data - dt.timedelta(days=1)).isoformat())
-    lokalne["zdarzenia"] = [z for z in lokalne["zdarzenia"] if z["s"] in w_zakresie]
-    powroty = [(tokeny.ZRODLO, *efektywnosc.powroty(lokalne, wzorce, od, do))]
+    lokalne = zdarzenia_agentow.zbierz(katalogi_transkrypcji(konf), (od_tygodnia - dt.timedelta(days=7)).isoformat())
+    repo_sesji = {}
+    for sid, cwd in (lokalne.get("sesje") or {}).items():
+        nazwa = projekty(cwd)[0]
+        if nazwa in repozytoria or sid in w_zakresie:
+            repo_sesji[sid] = repo_gh.get(nazwa) or "?"      # „?” = repo bez PR z GitHuba: bez dopasowania po numerze
+    lokalne["zdarzenia"] = [z for z in lokalne["zdarzenia"] if z["s"] in repo_sesji]
+    lokalne["agenci"] = {k: v for k, v in (lokalne.get("agenci") or {}).items() if v.get("s") in repo_sesji}
+    powroty = [(tokeny.ZRODLO, *efektywnosc.powroty(
+        dict(lokalne, zdarzenia=[z for z in lokalne["zdarzenia"] if z["s"] in w_zakresie]), wzorce, od, do))]
+    zdarzenia_zrodel = [(lokalne, repo_sesji)]
     for zrodlo in konf.get("zrodla_zdalne") or []:
         nazwa = str(zrodlo.get("nazwa") or "").strip()
         if (not nazwa or zrodlo.get("wlaczone") is False or a.bez_zdalnych or katalog is None
@@ -988,7 +1000,14 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
             continue
         uwagi.append(t("ef_zdarzenia_ok", nazwa=nazwa, opis=opis, n=len(dane.get("zdarzenia") or [])))
         powroty.append((nazwa, *efektywnosc.powroty(dane, wzorce, od, do)))
-    return {"wzorce": wzorce, "koszty": koszty, "rundy": rundy, "powroty": powroty, "uwagi": uwagi}
+        zdarzenia_zrodel.append((dane, {}))                 # repo nieznane: PR dopasowane po numerze
+    polaczone = None
+    if rundy is not None:
+        polaczone = efektywnosc.polacz_pr(rundy, efektywnosc.koszty_pr(zdarzenia_zrodel, wzorce, cennik))
+    katalogi_agentow = [(nazwa, pathlib.Path(sciezka) / ".claude" / "agents") for nazwa, sciezka in repozytoria.items()]
+    katalogi_agentow.append(("~/.claude", wspolne.katalog_claude() / "agents"))
+    return {"wzorce": wzorce, "koszty": koszty, "rundy": rundy, "powroty": powroty, "uwagi": uwagi,
+            "polaczone": polaczone, "agenci_konf": efektywnosc.konfiguracja_agentow(katalogi_agentow)}
 
 
 def nazwa_pliku(nazwa: str) -> str:
@@ -1132,7 +1151,8 @@ def main(argv=None):
     else:
         foldery = sorted(p for p in (wspolne.katalog_claude() / "projects").glob("*") if p.is_dir())
     pamiec_liczba, pamiec_zmiany, pamiec_bez_sesji = pamiec(foldery, od, projekty_folderow)
-    ef = efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh, sesje, od, do, od_data, do_data)
+    ef = efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh, sesje, od, do, od_data, do_data,
+                            projekty)
 
     suma = collections.Counter()
     for s in sesje:
@@ -1168,8 +1188,10 @@ def main(argv=None):
         "claude_md_linie_osobno": sum(n for _, _, n, osobno in regul if osobno),
         # od 0.2.1: kto obudził sesję (suma = `wybudzenia`)
         **{f"wybudzenia_{p}": n for p, n in tok["wybudzenia_przyczyny"].items()},
-        # od 0.3.0: efektywność pisania (rundy poprawek, powroty, koszt implementacji wg modelu)
-        **efektywnosc.metryki_okna(ef["rundy"], od, do, ef["powroty"], tok["wywolania_okna"], ef["wzorce"]),
+        # od 0.3.0: efektywność pisania (rundy poprawek, powroty, koszt implementacji wg modelu);
+        # od 0.4.0: koszt agentów na PR, wg konfiguracji implementatora, udział poziomów rozumowania
+        **efektywnosc.metryki_okna(ef["rundy"], od, do, ef["powroty"], tok["wywolania_okna"], ef["wzorce"],
+                                   ef["polaczone"]),
     }
     (wyjscie / "metryki.json").write_text(json.dumps(metryki, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -1202,7 +1224,9 @@ def main(argv=None):
     l += raport_trendu(trend_wiersze, trend_uwaga, zdalne_uwagi)
     porown = efektywnosc.porownanie(katalog / "metryki.csv", metryki) if katalog is not None else ([], [])
     l += efektywnosc.raport(porown, ef["koszty"], ef["rundy"], od, do, ef["powroty"], ef["uwagi"],
-                            przerwa=konf.get("pr_przerwa_rundy_min") or efektywnosc.PRZERWA_RUNDY_MIN)
+                            przerwa=konf.get("pr_przerwa_rundy_min") or efektywnosc.PRZERWA_RUNDY_MIN,
+                            polaczone=ef["polaczone"], agenci_konf=ef["agenci_konf"], wzorce=ef["wzorce"],
+                            progi=konf.get("pr_progi_rozmiaru"))
     l += ["", t("pods_repo"), "", t("pods_repo_kolumny"),
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for nazwa, r in repo.items():

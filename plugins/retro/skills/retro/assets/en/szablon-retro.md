@@ -22,10 +22,22 @@ Source: the "Tokens and writing efficiency" section of the signals summary (mand
 
 - **Better:** … (numbers, cause, evidence)
 - **Worse:** … (numbers, cause, evidence)
-- **Efficiency by implementer model:** PRs with a fix and rounds per PR for each model (Opus, Sonnet, Fable…),
-  returns from review and CI, the model's share of implementation cost; with < 5 PRs of a model only a hint.
-- **Suggestions (2–3):** change · expected effect · measure (e.g. "implement simple PRs on Sonnet as long as the
-  share of PRs with a fix does not grow by more than 10 percentage points over two retros").
+- **Efficiency by implementer configuration** (model · reasoning effort, within one PR size): share of PRs with a
+  fix, rounds, returns from review and CI, **cost per PR** (expected cost of an accepted PR); with < 5 PRs in a cell
+  only a hint.
+
+**Agent selection rules** (who does which task, on which model and effort):
+
+| task (role · size) | now (agent · model · effort) | proposed | data (PRs, % with a fix, cost per PR) | measure in the next retros |
+|---|---|---|---|---|
+
+- A move to a cheaper configuration makes sense when the cost per PR falls and the share of PRs with a fix does not
+  grow by more than 10 percentage points; to a more expensive one when fewer fixes lower the cost per PR or the time
+  to merge.
+- With too few PRs propose an experiment instead of a rule (e.g. "every other size-S PR to `programista-prosty`",
+  for two retros).
+- **Suggestions (2–3):** change · expected effect · measure (e.g. "implement size-S PRs on Sonnet · medium as long as
+  the share of PRs with a fix does not grow by more than 10 percentage points and the cost per PR stays below Opus").
 
 ## 3. Commitments review
 

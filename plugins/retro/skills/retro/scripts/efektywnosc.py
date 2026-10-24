@@ -34,14 +34,18 @@ MAX_STRON_GH = 10
 # Porównanie z poprzednimi retro (kolumny `metryki.csv`); dla każdego wskaźnika więcej = gorzej.
 POROWNANIE = ["koszt_na_wiadomosc_usd", "kontekst_mediana", "kontekst_ponad_200k_proc", "kontekst_startowy_mediana",
               "podagenci_opus_koszt_proc", "wybudzenia_koszt_usd", "pr_z_poprawka_proc", "rundy_na_pr",
-              "powroty_przeglad", "powroty_ci"]
+              "powroty_przeglad", "powroty_ci", "koszt_na_pr_usd"]
 POPRZEDNIE_RETRO = 3
+# Rozmiar PR (dodane + usunięte linie): S do pierwszego progu, M do drugiego, L powyżej.
+PROGI_ROZMIARU = [50, 300]
+# Konfiguracja implementatora ma wynik, a nie tylko wskazówkę, od tylu PR w komórce tabeli.
+MIN_PR = 5
 ZAPYTANIE_PR = """
 query($q: String!, $po: String) {
   search(query: $q, type: ISSUE, first: 40, after: $po) {
     pageInfo { hasNextPage endCursor }
     nodes { ... on PullRequest {
-      number createdAt mergedAt headRefName
+      number createdAt mergedAt headRefName additions deletions changedFiles
       commits(first: 100) { totalCount nodes { commit { oid authoredDate messageHeadline messageBody
         parents { totalCount } } } }
     } }
@@ -89,8 +93,9 @@ def udzialy(licznik) -> str:
 # ---------------------------------------------------------------- koszt wg roli i modelu
 
 def koszt_wg_roli(calls: dict, cennik: dict, wzorce: list, od_tygodnia: dt.date):
-    """Z archiwum wywołań (`tokeny-archiwum*.json`): {(tydzień, rola, rodzina): USD} i {tydzień: USD}. Ceny
-    bieżących modeli rodziny (jak `koszt_api_usd_ceny_55`), żeby zmiana cennika nie udawała zmiany pracy."""
+    """Z archiwum wywołań (`tokeny-archiwum*.json`): {(tydzień, rola, rodzina, poziom rozumowania): USD}
+    i {tydzień: USD}. Ceny bieżących modeli rodziny (jak `koszt_api_usd_ceny_55`), żeby zmiana cennika nie udawała
+    zmiany pracy. Poziom None = wywołanie bez zapisanego poziomu (starsze transkrypcje)."""
     tab, sumy = collections.defaultdict(float), collections.defaultdict(float)
     for r in calls.values():
         w = tokeny.z_rekordu(r)
@@ -103,7 +108,7 @@ def koszt_wg_roli(calls: dict, cennik: dict, wzorce: list, od_tygodnia: dt.date)
         if not c:
             continue
         k = sum(c.values())
-        tab[(tydz, rola(r.get("sub"), r.get("agent"), wzorce), rodzina(w["model"]))] += k
+        tab[(tydz, rola(r.get("sub"), r.get("agent"), wzorce), rodzina(w["model"]), w.get("effort"))] += k
         sumy[tydz] += k
     return tab, sumy
 
@@ -115,6 +120,134 @@ def koszt_implementacji_wg_modelu(wywolania: list, wzorce: list):
         if rola(w["podagent"], w.get("agent"), wzorce) == "implementacja":
             licznik[rodzina(w["model"])] += w.get("koszt") or 0
     return udzialy(licznik)
+
+
+def koszt_wg_poziomu(wywolania: list):
+    """Udział poziomów rozumowania w koszcie okna, „high:80;xhigh:18;?:2” („?” = bez zapisanego poziomu)."""
+    licznik = collections.Counter()
+    for w in wywolania:
+        licznik[w.get("effort") or "?"] += w.get("koszt") or 0
+    return udzialy(licznik)
+
+
+# ---------------------------------------------------------------- koszt i jakość na PR wg konfiguracji
+
+def konfiguracja(model, poziom) -> str:
+    return f"{rodzina(model)} · {poziom}" if poziom else rodzina(model)
+
+
+def rozmiar(linie, progi=None) -> str:
+    progi = progi or PROGI_ROZMIARU
+    if linie is None:
+        return "?"
+    return "S" if linie <= progi[0] else "M" if linie <= progi[1] else "L"
+
+
+def koszt_agenta(a: dict, cennik: dict) -> float:
+    """Koszt podagenta z sum tokenów jego transkrypcji (`zdarzenia_agentow.py`), w cenach bieżącego modelu rodziny,
+    bez dopłaty za długi kontekst (sumy nie mają kontekstu pojedynczych wywołań)."""
+    tok = a.get("tokeny") or {}
+    cw5 = tok["cw5"] if "cw5" in tok else tok.get("cw", 0)      # wynik sprzed 0.4.0: cały zapis po stawce 5 min
+    w = {"model": a.get("model") or "?", "wejscie": tok.get("inp", 0), "wyjscie": tok.get("out", 0),
+         "zapis_5m": cw5, "zapis_1h": tok.get("cw1h", 0), "odczyt": tok.get("cr", 0), "kontekst": 0,
+         "fast": False, "web_search": 0}
+    c = tokeny.czesci_kosztu(w, cennik, tokeny.model_biezacy(w["model"], cennik))
+    return sum(c.values()) if c else 0.0
+
+
+def koszty_pr(zrodla: list, wzorce: list, cennik: dict) -> dict:
+    """{(repo albo None, nr PR): {"koszt": Counter(rola → USD), "impl": (typ, model, poziom, czas) pierwszego
+    implementatora albo None}} ze zdarzeń agentów. `zrodla`: [(dane `zdarzenia_agentow`, {sesja: repo})].
+    Koszt agenta, który pracował nad kilkoma PR, dzieli się po równo."""
+    wynik = collections.defaultdict(lambda: {"koszt": collections.Counter(), "impl": None})
+    for dane, repo_sesji in zrodla:
+        agenci = dane.get("agenci") or {}
+        prs = collections.defaultdict(set)
+        for aid, a in agenci.items():
+            prs[aid].update(a.get("pr") or [])
+        for e in dane.get("zdarzenia") or []:
+            if e.get("rodzaj") == "kontynuacja" and e.get("agent") in agenci:
+                prs[e["agent"]].update(e.get("pr") or [])
+        for aid, a in agenci.items():
+            if not prs[aid]:
+                continue
+            r = rola(True, a.get("typ"), wzorce)
+            k = koszt_agenta(a, cennik) / len(prs[aid])
+            poziom = (a.get("tokeny") or {}).get("eff") or a.get("effort_zadany")
+            for pr in prs[aid]:
+                rek = wynik[(repo_sesji.get(a.get("s")), pr)]
+                rek["koszt"][r] += k
+                if r == "implementacja" and (rek["impl"] is None or (a.get("ts") or "") < rek["impl"][3]):
+                    rek["impl"] = (a.get("typ"), a.get("model"), poziom, a.get("ts") or "")
+    return dict(wynik)
+
+
+def polacz_pr(rundy: list, koszty: dict) -> list:
+    """Rekordy `rundy_pr` z kosztem agentów i konfiguracją implementatora (`pr_koszt`, `pr_impl`). Dopasowanie po
+    (repo, nr); PR ze źródła bez repo (np. kontener) po samym numerze, gdy jest jednoznaczny wśród PR z GitHuba."""
+    numery = collections.Counter(r["pr"] for r in rundy)
+    bez_repo = collections.defaultdict(list)
+    for (repo, pr), rek in koszty.items():
+        if repo is None:
+            bez_repo[pr].append(rek)
+    wynik = []
+    for r in rundy:
+        reki = ([koszty[(r["repo"], r["pr"])]] if (r["repo"], r["pr"]) in koszty else []) \
+            + (bez_repo.get(r["pr"], []) if numery[r["pr"]] == 1 else [])
+        koszt, impl = collections.Counter(), None
+        for rek in reki:
+            koszt.update(rek["koszt"])
+            if rek["impl"] and (impl is None or rek["impl"][3] < impl[3]):
+                impl = rek["impl"]
+        wynik.append(dict(r, pr_koszt=koszt if reki else None, pr_impl=impl))
+    return wynik
+
+
+def opis_konfiguracji(lista: list) -> dict:
+    """PR, odsetek z poprawką, rundy, koszt implementacji, przeglądu i CI oraz całkowity na PR (średnia = oczekiwany
+    koszt zaakceptowanego PR, bo zawiera rundy poprawek z ich częstością), koszt na 100 linii."""
+    o = opis_pr(lista)
+    koszty = [sum(r["pr_koszt"].values()) for r in lista]
+    linie = sum(r["linie"] or 0 for r in lista)
+    o.update({"impl": statistics.mean(r["pr_koszt"]["implementacja"] for r in lista) if lista else None,
+              "kontrola": statistics.mean(r["pr_koszt"]["przeglad"] + r["pr_koszt"]["ci"] for r in lista) if lista else None,
+              "na_pr": statistics.mean(koszty) if koszty else None,
+              "na_100_linii": 100 * sum(koszty) / linie if linie else None})
+    return o
+
+
+def tabela_konfiguracji(polaczone: list, progi=None) -> dict:
+    """{(konfiguracja implementatora, rozmiar): [PR]} dla PR z kosztem agentów."""
+    grupy = collections.defaultdict(list)
+    for r in polaczone:
+        if r["pr_koszt"] is None:
+            continue
+        impl = r["pr_impl"]
+        etykieta = konfiguracja(impl[1], impl[2]) if impl else t("rola_sesja")
+        grupy[(etykieta, rozmiar(r["linie"], progi))].append(r)
+    return grupy
+
+
+def konfiguracja_agentow(katalogi: list) -> list:
+    """[(nazwa, model, poziom, źródło)] z nagłówków `.claude/agents/*.md` (pola `name`, `model`, `effort`)."""
+    wynik = []
+    for zrodlo, katalog in katalogi:
+        for plik in sorted(pathlib.Path(katalog).glob("*.md")):
+            try:
+                linie = plik.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue
+            if not linie or linie[0].strip() != "---":
+                continue
+            pola = {}
+            for linia in linie[1:]:
+                if linia.strip() == "---":
+                    break
+                m = re.match(r"(name|model|effort)\s*:\s*(.+)", linia)
+                if m:
+                    pola[m.group(1)] = m.group(2).strip().strip("'\"")
+            wynik.append((pola.get("name") or plik.stem, pola.get("model") or "inherit", pola.get("effort"), zrodlo))
+    return wynik
 
 
 # ---------------------------------------------------------------- rundy poprawek w scalonych PR
@@ -156,7 +289,8 @@ def pr_commity(sciezka: str, od_data: dt.date, do_data: dt.date, gh: str):
                         "modele": sorted({rodzina(m) for m in WZOR_MODELU.findall(c["commit"].get("messageBody") or "")})}
                        for c in n["commits"]["nodes"]]
             wynik.append({"repo": repo, "pr": n["number"], "utworzony": n["createdAt"], "scalony": n["mergedAt"],
-                          "galaz": n["headRefName"], "commitow": n["commits"]["totalCount"], "commity": commity})
+                          "galaz": n["headRefName"], "commitow": n["commits"]["totalCount"], "commity": commity,
+                          "linie": (n.get("additions") or 0) + (n.get("deletions") or 0), "pliki": n.get("changedFiles")})
         if not s["pageInfo"]["hasNextPage"]:
             break
         po = s["pageInfo"]["endCursor"]
@@ -190,7 +324,8 @@ def rundy_pr(lista: list, konf: dict) -> list:
         wynik.append({"repo": p.get("repo"), "pr": p["pr"], "scalony": scalony, "tydzien": tokeny.poniedzialek(scalony),
                       "autor": autor, "rundy": len(rundy) - 1, "commity": len(wlasne),
                       "poprawki": collections.Counter((autor, m) for r in rundy[1:] for c in r for m in c["modele"] or [None]),
-                      "h": (scalony - utworzony).total_seconds() / 3600 if utworzony else None})
+                      "h": (scalony - utworzony).total_seconds() / 3600 if utworzony else None,
+                      "linie": p.get("linie"), "pliki": p.get("pliki")})
     return wynik
 
 
@@ -298,10 +433,41 @@ def fmt_usd(v) -> str:
     return f"{v:.0f}" if v >= 10 else f"{v:.2f}"
 
 
+def raport_konfiguracji(polaczone: list, agenci_konf: list, wzorce: list, progi=None) -> list:
+    """Koszt i jakość na PR wg konfiguracji implementatora (model · poziom rozumowania) i rozmiaru PR oraz obecna
+    konfiguracja agentów z `.claude/agents`."""
+    progi = progi or PROGI_ROZMIARU
+    l = ["", t("ef_konf_tytul"), "", t("ef_konf_opis", s=progi[0], m=progi[1], min_pr=MIN_PR), ""]
+    grupy = tabela_konfiguracji(polaczone, progi)
+    if not grupy:
+        l.append(t("ef_konf_brak"))
+    else:
+        l += [t("ef_konf_kolumny"), "|---|---|---|---|---|---|---|---|---|"]
+        kolejnosc = {"S": 0, "M": 1, "L": 2, "?": 3}
+        for (konf, rozm), lista in sorted(grupy.items(), key=lambda x: (kolejnosc[x[0][1]], -len(x[1]), x[0][0])):
+            o = opis_konfiguracji(lista)
+            pr = f"{o['pr']}" if o["pr"] >= MIN_PR else f"{o['pr']}*"
+            usd = lambda v: "—" if v is None else f"${v:.2f}"  # noqa: E731
+            if konf == t("rola_sesja"):      # implementacja w sesji głównej: jej kosztu nie przypisujemy do PR
+                o["impl"] = o["na_pr"] = o["na_100_linii"] = None
+            l.append(f"| {konf} | {rozm} | {pr} | {o['z_poprawka']:g}% | {fmt(o['rundy'])} | {usd(o['impl'])} | "
+                     f"{usd(o['kontrola'])} | **{usd(o['na_pr'])}** | {usd(o['na_100_linii'])} |")
+    bez = sum(1 for r in polaczone if r["pr_koszt"] is None)
+    if polaczone:
+        l += ["", t("ef_konf_bez_kosztu", bez=bez, wszystkie=len(polaczone))]
+    if agenci_konf:
+        l += ["", t("ef_agenci_tytul"), "", t("ef_agenci_kolumny"), "|---|---|---|---|---|"]
+        l += [f"| {nazwa} | {etykieta_roli(rola(True, nazwa, wzorce))} | {model} | {poziom or '—'} | {zrodlo} |"
+              for nazwa, model, poziom, zrodlo in agenci_konf]
+    return l
+
+
 def raport(porown, koszty: list, rundy: list, od, do, powroty_zrodel: list, uwagi: list, dzis: dt.date = None,
-           przerwa: int = PRZERWA_RUNDY_MIN) -> list:
+           przerwa: int = PRZERWA_RUNDY_MIN, polaczone: list = None, agenci_konf: list = (), wzorce: list = (),
+           progi=None) -> list:
     """Linie sekcji podsumowania. `koszty`: [(źródło, tab, sumy)]; `rundy`: rekordy `rundy_pr` z kilku tygodni
-    (None = pominięte); `powroty_zrodel`: [(źródło, stat, przyczyny)]; `uwagi`: notatki o pominięciach."""
+    (None = pominięte); `powroty_zrodel`: [(źródło, stat, przyczyny)]; `uwagi`: notatki o pominięciach;
+    `polaczone`: `polacz_pr` (None = bez GitHuba); `agenci_konf`: `konfiguracja_agentow`."""
     dzis = dzis or dt.date.today()
     l = ["", t("ef_tytul"), "", t("ef_opis")]
     if uwagi:
@@ -326,11 +492,11 @@ def raport(porown, koszty: list, rundy: list, od, do, powroty_zrodel: list, uwag
         naglowki = [tydz.isoformat()[5:] + (t("ef_niezak") if tydz + dt.timedelta(days=6) >= dzis else "")
                     for tydz in tygodnie]
         l += ["| " + t("ef_rola_model") + " | " + " | ".join(naglowki) + " |", "|---|" + "---|" * len(tygodnie)]
-        klucze = sorted({(r, m) for (_, r, m) in tab}, key=lambda x: -sum(tab[(w, *x)] for w in tygodnie))
-        for r, m in klucze:
-            komorki = [f"{fmt_usd(tab[(w, r, m)])} ({100 * tab[(w, r, m)] / sumy[w]:.0f}%)"
-                       if tab[(w, r, m)] >= 0.01 and sumy[w] else "—" for w in tygodnie]
-            l.append(f"| {etykieta_roli(r)} · {m} | " + " | ".join(komorki) + " |")
+        klucze = sorted({k[1:] for k in tab}, key=lambda x: -sum(tab[(w, *x)] for w in tygodnie))
+        for r, m, poziom in klucze:
+            komorki = [f"{fmt_usd(tab[(w, r, m, poziom)])} ({100 * tab[(w, r, m, poziom)] / sumy[w]:.0f}%)"
+                       if tab[(w, r, m, poziom)] >= 0.01 and sumy[w] else "—" for w in tygodnie]
+            l.append(f"| {etykieta_roli(r)} · {konfiguracja(m, poziom)} | " + " | ".join(komorki) + " |")
         l.append(f"| **{t('ef_razem')}** | " + " | ".join(f"**{fmt_usd(sumy[w])}**" for w in tygodnie) + " |")
     # 3. rundy poprawek w scalonych PR
     if rundy is not None:
@@ -372,6 +538,8 @@ def raport(porown, koszty: list, rundy: list, od, do, powroty_zrodel: list, uwag
         if kto:
             l += ["", t("ef_kto_poprawia") + ", ".join(f"{nazwa_modelu(a)} → {nazwa_modelu(b)}: {n}"
                                                        for (a, b), n in kto.most_common()) + "."]
+    if polaczone is not None or agenci_konf:
+        l += raport_konfiguracji(polaczone or [], agenci_konf, list(wzorce), progi)
     # 4. powroty w transkrypcjach
     for zrodlo, stat, przyczyny in powroty_zrodel:
         l += ["", t("ef_powroty", zrodlo=zrodlo), ""]
@@ -387,8 +555,8 @@ def raport(porown, koszty: list, rundy: list, od, do, powroty_zrodel: list, uwag
     return l
 
 
-def metryki_okna(rundy, od, do, powroty_zrodel: list, wywolania: list, wzorce: list) -> dict:
-    """Kolumny `metryki.csv` od 0.3.0 (PR scalone w oknie; powroty ze wszystkich źródeł)."""
+def metryki_okna(rundy, od, do, powroty_zrodel: list, wywolania: list, wzorce: list, polaczone: list = None) -> dict:
+    """Kolumny `metryki.csv` od 0.3.0 i 0.4.0 (PR scalone w oknie; powroty ze wszystkich źródeł)."""
     w_oknie = [r for r in rundy if od <= r["scalony"] < do] if rundy is not None else None
     m = {"pr_analizowane": None, "pr_z_poprawka_proc": None, "rundy_na_pr": None, "pr_wg_modelu": None,
          "pr_z_poprawka_proc_wg_modelu": None}
@@ -408,4 +576,14 @@ def metryki_okna(rundy, od, do, powroty_zrodel: list, wywolania: list, wzorce: l
     m["powroty_przeglad"] = przyczyny["przeglad"] if powroty_zrodel else None
     m["powroty_ci"] = przyczyny["ci"] if powroty_zrodel else None
     m["koszt_implementacji_proc_wg_modelu"] = koszt_implementacji_wg_modelu(wywolania, wzorce)
+    # od 0.4.0: koszt agentów na PR scalony w oknie i wg konfiguracji implementatora, udział poziomów rozumowania
+    z_kosztem = [r for r in polaczone or [] if r["pr_koszt"] is not None and r["pr_impl"] and od <= r["scalony"] < do]
+    m["pr_powiazane"] = len(z_kosztem) if polaczone is not None else None
+    m["koszt_na_pr_usd"] = round(opis_konfiguracji(z_kosztem)["na_pr"], 2) if z_kosztem else None
+    grupy = collections.defaultdict(list)
+    for (konf, _), lista in tabela_konfiguracji(z_kosztem).items():
+        grupy[konf.replace(" · ", "/")] += lista
+    m["koszt_na_pr_wg_konfiguracji"] = ";".join(
+        f"{k}:{opis_konfiguracji(v)['na_pr']:.2f}" for k, v in sorted(grupy.items(), key=lambda x: -len(x[1]))) or None
+    m["koszt_wg_poziomu"] = koszt_wg_poziomu(wywolania)
     return m

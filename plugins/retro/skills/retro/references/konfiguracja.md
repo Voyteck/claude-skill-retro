@@ -29,6 +29,7 @@ defaults from `scripts/wspolne.py` (`DOMYSLNA_KONFIGURACJA`). Change it by hand 
 | `pr_przerwa_rundy_min` | `20` | a break between commit batches in a PR longer than this starts a new fix round |
 | `pr_max_commitow` | `40` | PRs with more commits are skipped (branch merges, batches) |
 | `pr_pomin_galezie` | `["integration/", "batch/"]` | head branch prefixes skipped in fix rounds (integration batches) |
+| `pr_progi_rozmiaru` | `[50, 300]` | PR size buckets in lines (additions + deletions): S up to the first, M up to the second, L above (since 0.4.0) |
 
 ## Glossary of identifiers
 
