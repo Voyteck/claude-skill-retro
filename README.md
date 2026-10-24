@@ -7,8 +7,9 @@ working days (recommended: every 2) the retro:
 
 1. **reviews commitments** from previous retros: were they kept and did they have an effect;
 2. gathers **evidence** from Claude Code transcripts, git and GitHub (user messages, answers to questions,
-   blocks, tool errors, subagents, PRs, CI, size of rules files, tokens and cost at API prices: context, share of
-   subagents and Opus, wake-ups of long sessions) and measures **writing efficiency**: cost by agent role and
+   blocks, refused and failed tool calls by cause, subagents, PRs, CI, size of rules files, tokens and cost at API
+   prices: context, share of subagents and Opus, wake-ups of long sessions, cloud sessions, cost per 10% of the
+   plan) and measures **writing efficiency**: cost by agent role and
    model, fix rounds in merged PRs by author model, returns from review and CI, cost and quality per PR by
    implementer model, reasoning effort and PR size, compared with the previous 3 retros, to tune which agent, model
    and effort does which task;
@@ -18,6 +19,10 @@ working days (recommended: every 2) the retro:
    register.
 
 If there has been no retro for 5 working days, a new Claude Code session reminds you (`SessionStart` hook).
+
+Since 0.5.0 retro also replaces the [`claude-usage-report`](https://github.com/Voyteck/claude-skill-usage-report)
+skill: its measurements (tokens and context, cache rebuilds, refused tool calls by cause, cloud session cost, cost
+per merged PR and per 10% of the plan, comparison with the previous measurement) are part of every retro.
 
 ## Languages
 

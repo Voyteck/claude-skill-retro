@@ -1,5 +1,23 @@
 # Zmiany
 
+## 0.5.0 · 2026-10-24
+
+Retro zastępuje skill `claude-usage-report`: przeniesione jest to, czego retro jeszcze nie miało.
+
+- **Odrzucone i nieudane wywołania narzędzi wg przyczyny** (sesja główna i podagenci). Odrzucone: strażnik worktree,
+  klasyfikator trybu auto, odmowa właściciela, zablokowane czekanie, hook, reguła uprawnień, inne blokady. Nieudane:
+  Edit/Write bez wcześniejszego Read (nowa przyczyna, w R04 24 z 35 błędów), kod wyjścia, błąd parametrów, brak pliku.
+  Sekcja podsumowania z tabelą i sygnałem powyżej 2 odrzuceń na 100 wywołań; metryki `narzedzia_wywolania`,
+  `odrzucenia`, `odrzucenia_na_100`, `odrzucenia_wg_przyczyny`, `niepowodzenia_wg_przyczyny`.
+- **Koszt sesji w chmurze** (claude.ai/code): `--chmura PLIK` z `[{id, title, cost_usd}]` z `get_session` Remote MCP.
+  Archiwum odczytów `dane/chmura-archiwum.json`; koszt okna = koszt teraz minus ostatni odczyt sprzed okna, więc
+  ponowne uruchomienie daje ten sam wynik. Metryki `chmura_koszt_usd`, `chmura_sesje`, `chmura_nowe`. `SKILL.md`
+  mówi, jak zebrać koszty jednym `get_session` na sesję (bez stronicowania zdarzeń).
+- **Udział w planie:** `--plan-uzyty PROC` (pytanie `[fakt]` w kroku 1) skaluje koszt (lokalny i w chmurze),
+  wiadomości właściciela i scalone PR do 10% planu; metryki `plan_uzyty_proc`, `koszt_na_10proc_planu`,
+  `wiad_na_10proc_planu`, `pr_scalone_na_10proc_planu`.
+- README: retro zastępuje `claude-usage-report`.
+
 ## 0.4.0 · 2026-10-24
 
 Dane do reguł doboru agenta: który agent, na jakim modelu i poziomie rozumowania robi jakie zadanie. Jakość pisania

@@ -1387,5 +1387,101 @@ class Test040(Srodowisko):
         self.assertIn("| programista | implementacja | opus | high | repo |", p)
 
 
+class Test050(Srodowisko):
+    """Zmiany 0.5.0 (przeniesione z claude-usage-report): odrzucone i nieudane wywołania narzędzi wg przyczyny,
+    koszt sesji w chmurze, udział w planie."""
+
+    dopisz = TestSygnalyUzupelnienia.dopisz
+
+    def test_klasyfikacja_bledow(self):
+        import sygnaly
+        przypadki = [
+            ("Permission for this action was denied by the Claude Code auto mode classifier.", ("odrzucenie", "klasyfikator")),
+            ("This command is too complex to verify. Run it in the worktree.", ("odrzucenie", "worktree")),
+            ("The user doesn't want to proceed with this tool use.", ("odrzucenie", "odmowa_wlasciciela")),
+            ("<tool_use_error>Blocked: sleep 30 in the foreground</tool_use_error>", ("odrzucenie", "sleep")),
+            ("PreToolUse hook blocked the command: use a script", ("odrzucenie", "hook")),
+            ("Permission to use Bash has been denied.", ("odrzucenie", "uprawnienia")),
+            ("<tool_use_error>Blocked by policy</tool_use_error>", ("odrzucenie", "zablokowane_inne")),
+            ("<tool_use_error>File has not been read yet. Read it first before writing to it.</tool_use_error>",
+             ("niepowodzenie", "edit_bez_read")),
+            ("Exit code 1\nFAILED tests", ("niepowodzenie", "kod_wyjscia")),
+            ("<tool_use_error>InputValidationError: missing parameter</tool_use_error>", ("niepowodzenie", "blad_wejscia")),
+            ("File does not exist.", ("niepowodzenie", "brak_pliku")),
+            ("Something odd", ("niepowodzenie", "inny_blad")),
+        ]
+        for tekst, oczekiwane in przypadki:
+            self.assertEqual(sygnaly.klasyfikuj_blad(tekst), oczekiwane, tekst)
+
+    def test_odrzucenia_w_podsumowaniu(self):
+        pod = self.claude / "projects" / "f-repo" / "sesja-repo" / "subagents"
+        pod.mkdir(parents=True)
+        (pod / "agent-x.meta.json").write_text(json.dumps({"agentType": "programista"}), encoding="utf-8")
+        pola = {"cwd": str(self.repo), "sessionId": "x", "timestamp": ts()}
+        (pod / "agent-x.jsonl").write_text("\n".join(json.dumps(r) for r in [
+            {"type": "assistant", **pola, "message": {"model": "m", "content": [
+                {"type": "tool_use", "id": "u1", "name": "Bash", "input": {}},
+                {"type": "tool_use", "id": "u2", "name": "Bash", "input": {}},
+                {"type": "tool_use", "id": "u3", "name": "Bash", "input": {}}]}},
+            {"type": "user", **pola, "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "u1", "is_error": True, "content": "Permission to use Bash has been denied."},
+                {"type": "tool_result", "tool_use_id": "u2", "is_error": True, "content": "Exit code 2"},
+                {"type": "tool_result", "tool_use_id": "u3", "is_error": True,       # ta sama przyczyna co w sesji głównej
+                 "content": "Permission for this action was denied by the Claude Code auto mode classifier."}]}},
+            {"type": "user", "cwd": str(self.repo), "timestamp": ts(dt.timedelta(days=-10)), "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "u0", "is_error": True, "content": "Exit code 3"}]}},  # poza oknem
+        ]) + "\n", encoding="utf-8")
+        wyjscie, m = TestSygnalyUzupelnienia.sygnaly(self)
+        # transkrypcje bazowe: po 4 wywołania narzędzi, klasyfikator i Edit bez Read w każdej z 2 sesji
+        self.assertEqual((m["narzedzia_wywolania"], m["odrzucenia"], m["odrzucenia_na_100"]), (11, 4, 36.36))
+        self.assertEqual(m["odrzucenia_wg_przyczyny"], "klasyfikator:3;uprawnienia:1")   # suma sesji i podagentów
+        self.assertEqual(m["niepowodzenia_wg_przyczyny"], "edit_bez_read:2;kod_wyjscia:1")
+        p = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("## Wywołania narzędzi: odrzucone i nieudane", p)
+        self.assertIn("odrzucone 4 (36.36 na 100)", p)
+        self.assertIn("| klasyfikator trybu auto | 2 | 1 | 3 |", p)
+        self.assertIn("| reguła uprawnień | 0 | 1 | 1 |", p)
+        self.assertIn("| Edit/Write bez wcześniejszego Read | 2 | 0 | 2 |", p)
+        self.assertIn("**Sygnał:** więcej niż 2 odrzucenia na 100", p)
+
+    def test_chmura_okna(self):
+        import tokeny
+        plik = self.tmp / "dane" / "chmura.json"
+        t0 = dt.datetime(2026, 10, 20, 12, 0).astimezone()
+        lista = [{"id": "session_a", "title": "A", "cost_usd": 10}, {"id": "session_b", "title": "B", "cost_usd": 4}]
+        w1 = tokeny.chmura_okna(lista, plik, t0 - dt.timedelta(days=3), teraz=t0)
+        self.assertEqual((w1["okno"], w1["nowe"]), (14, 2))              # pierwszy odczyt: cały koszt
+        lista[0]["cost_usd"] = 25
+        od2 = t0 + dt.timedelta(hours=1)                                 # następne retro: okno po pierwszym odczycie
+        w2 = tokeny.chmura_okna(lista, plik, od2, teraz=t0 + dt.timedelta(days=2))
+        self.assertEqual((w2["okno"], w2["nowe"]), (15.0, 0))            # 25 − 10 i 4 − 4
+        w3 = tokeny.chmura_okna(lista, plik, od2, teraz=t0 + dt.timedelta(days=2, hours=1))   # ponowne uruchomienie
+        self.assertEqual(w3["okno"], 15.0)
+        self.assertEqual(len(json.loads(plik.read_text(encoding="utf-8"))["session_a"]["odczyty"]), 3)
+
+    def test_chmura_i_plan_w_podsumowaniu(self):
+        self.zaloz_konto()
+        plik = self.tmp / "chmura.json"
+        plik.write_text(json.dumps([{"id": "session_0123456789abcdef", "title": "Sesja w chmurze", "cost_usd": 3.5}]),
+                        encoding="utf-8")
+        wyjscie = self.tmp / "wyn"
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--bez-gh", "--wyjscie", str(wyjscie),
+                     "--chmura", str(plik), "--plan-uzyty", "20")
+        m = json.loads((wyjscie / "metryki.json").read_text(encoding="utf-8"))
+        self.assertEqual((m["chmura_koszt_usd"], m["chmura_sesje"], m["chmura_nowe"]), (3.5, 1, 1))
+        self.assertEqual((m["plan_uzyty_proc"], m["koszt_na_10proc_planu"], m["wiad_na_10proc_planu"]), (20.0, 1.75, 1.0))
+        self.assertIsNone(m["pr_scalone_na_10proc_planu"])              # bez gh
+        p = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("| `456789abcdef` | Sesja w chmurze | $3.50 | $3.50 | pierwszy odczyt |", p)
+        self.assertIn("Okno zużyło 20% planu. Na każde 10% planu: koszt w cenach API $1.75", p)
+        self.assertTrue((self.tmp / "ws" / "dane" / "chmura-archiwum.json").is_file())
+        plik.write_text("{", encoding="utf-8")
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--bez-gh", "--wyjscie", str(wyjscie),
+                     "--chmura", str(plik))
+        p = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("Nie mierzone: nie da się odczytać", p)
+        self.assertIn("Nie podano (`--plan-uzyty PROC`)", p)
+
+
 if __name__ == "__main__":
     unittest.main()

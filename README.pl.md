@@ -7,8 +7,9 @@ Co kilka dni roboczych (zalecane: co 2) retro:
 
 1. **rozlicza zobowiązania** z poprzednich retro: czy były przestrzegane i czy dały efekt;
 2. zbiera **dowody** z transkrypcji Claude Code, gita i GitHuba (wiadomości użytkownika, odpowiedzi na pytania,
-   blokady, błędy narzędzi, podagenci, PR-y, CI, rozmiar plików reguł, tokeny i koszt w cenach API: kontekst,
-   udział podagentów i Opusa, wybudzenia długich sesji) i mierzy **efektywność pisania**: koszt wg roli agenta
+   blokady, odrzucone i nieudane wywołania narzędzi wg przyczyny, podagenci, PR-y, CI, rozmiar plików reguł, tokeny
+   i koszt w cenach API: kontekst, udział podagentów i Opusa, wybudzenia długich sesji, sesje w chmurze, koszt na
+   10% planu) i mierzy **efektywność pisania**: koszt wg roli agenta
    i modelu, rundy poprawek w scalonych PR wg modelu autora, powroty od przeglądu i CI, koszt i jakość na PR wg
    modelu, poziomu rozumowania implementatora i rozmiaru PR, na tle 3 poprzednich retro, żeby dobierać agenta,
    model i poziom rozumowania do zadań;
@@ -17,6 +18,10 @@ Co kilka dni roboczych (zalecane: co 2) retro:
 5. przyjęte zmiany **wdraża** do plików reguł (`CLAUDE.md`, pamięć, `nauki.md`) i rejestru zobowiązań.
 
 Jeśli przez 5 dni roboczych nie było retro, nowa sesja Claude Code przypomina (hook `SessionStart`).
+
+Od 0.5.0 retro zastępuje też skill [`claude-usage-report`](https://github.com/Voyteck/claude-skill-usage-report):
+jego pomiary (tokeny i kontekst, przebudowy cache, odrzucone wywołania narzędzi wg przyczyny, koszt sesji
+w chmurze, koszt na scalony PR i na 10% planu, porównanie z poprzednim pomiarem) są częścią każdego retro.
 
 ## Języki
 

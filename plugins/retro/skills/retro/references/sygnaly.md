@@ -73,6 +73,29 @@ Columns since 0.1.3 (in `metryki.csv` at the end, after `zobowiazania_aktywne`; 
 | `pr_powiazane`, `koszt_na_pr_usd` (since 0.4.0) | PRs merged in the window with an implementation subagent found in transcripts; their mean agent cost (implementation, review, CI, fix rounds included) | the expected cost of an accepted PR; main-session cost excluded |
 | `koszt_na_pr_wg_konfiguracji` (since 0.4.0) | the same by implementer configuration, `Opus/high:6.68;Sonnet/medium:1.20` | compare configurations within one PR size in the summary table, not in this sum |
 | `koszt_wg_poziomu` (since 0.4.0) | reasoning efforts' share of the window cost, `high:80;xhigh:18;?:2` | `?` = calls without a recorded effort |
+| `narzedzia_wywolania`, `odrzucenia`, `odrzucenia_na_100` (since 0.5.0) | `tool_use` blocks in the window (main session and subagents); tool results the harness refused; refusals per 100 tool calls | above 2 per 100 the summary prints a signal |
+| `odrzucenia_wg_przyczyny`, `niepowodzenia_wg_przyczyny` (since 0.5.0) | refusals and failures by cause, `klasyfikator:3;worktree:2` | causes in "Tool calls: refused and failed" |
+| `chmura_koszt_usd`, `chmura_sesje`, `chmura_nowe` (since 0.5.0) | cloud sessions' cost in the window from `--chmura`, how many sessions, how many read for the first time | empty without `--chmura`; first readings may include cost from before the window |
+| `plan_uzyty_proc`, `koszt_na_10proc_planu`, `wiad_na_10proc_planu`, `pr_scalone_na_10proc_planu` (since 0.5.0) | the share of the plan the window used (`--plan-uzyty`) and cost (local + cloud), owner messages and merged PRs per 10% of the plan | the only totals that compare between windows of different lengths |
+
+## Tool calls, cloud sessions and the plan (since 0.5.0)
+
+Taken over from the `claude-usage-report` skill, which retro replaces.
+
+- **Refused and failed tool calls.** Every `tool_result` with `is_error` (and every classifier or rejection message)
+  is classified; the first matching cause wins. Refusals: worktree guard ("isolated in the worktree", "too complex to
+  verify"), auto mode classifier, user rejected, blocked foreground sleep, hook, permission rule, other "Blocked".
+  Failures: Edit/Write without a prior Read ("has not been read yet", "modified since read"), command exit code, tool
+  input error (`<tool_use_error>`), file not found, other. Main session and subagents are counted separately;
+  questions (AskUserQuestion) are not tool errors. The older columns `blokady_klasyfikatora`, `odmowy_wlasciciela`
+  and `bledy_narzedzi` stay as before.
+- **Cloud sessions.** `--chmura FILE` takes `[{"id", "title", "cost_usd"}]` with each session's lifetime cost from the
+  Remote MCP `get_session` (`external_metadata.usage.cost_usd`). `dane/chmura-archiwum.json` keeps every reading with
+  its time; the window cost of a session is its cost now minus its last reading before the window start, so rerunning
+  the script for the same window gives the same result. A session without an earlier reading counts whole and is
+  marked "first reading".
+- **Plan.** `--plan-uzyty PCT` (the share of the plan the user says the window used) scales cost (local + cloud),
+  owner messages and merged PRs to 10% of the plan.
 
 ## Tokens and writing efficiency
 
