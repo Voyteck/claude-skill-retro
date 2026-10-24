@@ -7,8 +7,8 @@ importuje go dla transkrypcji tej maszyny; inna maszyna (np. kontener) przez std
 
 Argumenty: --od RRRR-MM-DD (UTC, domyślnie wszystko), --projekty KATALOG (domyślnie $CLAUDE_CONFIG_DIR/projects
 albo ~/.claude/projects; można powtórzyć).
-Wyjście: {"zdarzenia": [{ts, s, rodzaj: start|kontynuacja|raport, agent, typ, model, pr, werdykt, uwagi, ci}],
-"agenci": {agentId: {typ, model, s, ts, pr, tokeny: {inp, out, cw, cr, wyw}}}, "meta": {...}}.
+Wyjście: {"zdarzenia": [{ts, s, rodzaj: start|kontynuacja|raport, agent, typ, model, effort_zadany, pr, werdykt, uwagi, ci}],
+"agenci": {agentId: {typ, model, s, ts, pr, effort_zadany, tokeny: {inp, out, cw, cw5, cw1h, cr, wyw, eff}}}, "sesje": {sesja: cwd}, "meta": {...}}.
 Treść promptów i raportów jest czytana tylko po to, by wyciągnąć numery PR, werdykt przeglądu i wynik CI; nie trafia
 do wyniku.
 """
@@ -86,8 +86,10 @@ def tekst_tresci(c):
 
 
 def tokeny_agenta(plik):
-    """Model i sumy tokenów z transkrypcji podagenta (deduplikacja po message.id)."""
-    model, suma, widziane = None, {"inp": 0, "out": 0, "cw": 0, "cr": 0, "wyw": 0}, set()
+    """Model i sumy tokenów z transkrypcji podagenta: wejście, wyjście, zapis cache 5 min / 1 h, odczyt, liczba
+    wywołań i najczęstszy poziom rozumowania (`eff`). Ten sam message.id bywa zapisany kilka razy z częściowym
+    `usage`: liczy się rekord z największym `output_tokens`."""
+    model, wywolania = None, {}
     try:
         f = open(plik, encoding="utf-8", errors="replace")
     except OSError:
@@ -102,21 +104,32 @@ def tokeny_agenta(plik):
                 continue
             m = d.get("message") or {}
             u, mid = m.get("usage"), m.get("id")
-            if not isinstance(u, dict) or mid in widziane:
+            if not isinstance(u, dict) or not mid or m.get("model") == "<synthetic>":
                 continue
-            widziane.add(mid)
             model = model or (m.get("model") or "").replace("[1m]", "") or None
-            suma["inp"] += u.get("input_tokens") or 0
-            suma["out"] += u.get("output_tokens") or 0
-            suma["cw"] += u.get("cache_creation_input_tokens") or 0
-            suma["cr"] += u.get("cache_read_input_tokens") or 0
-            suma["wyw"] += 1
+            stary = wywolania.get(mid)
+            if stary is None or (u.get("output_tokens") or 0) >= (stary[0].get("output_tokens") or 0):
+                wywolania[mid] = (u, d.get("effort") if isinstance(d.get("effort"), str) else None)
+    suma = {"inp": 0, "out": 0, "cw": 0, "cw5": 0, "cw1h": 0, "cr": 0, "wyw": len(wywolania)}
+    poziomy = {}
+    for u, eff in wywolania.values():
+        zapis = u.get("cache_creation_input_tokens") or 0
+        zapis_1h = (u.get("cache_creation") or {}).get("ephemeral_1h_input_tokens") or 0
+        suma["inp"] += u.get("input_tokens") or 0
+        suma["out"] += u.get("output_tokens") or 0
+        suma["cw"] += zapis
+        suma["cw5"] += zapis - zapis_1h
+        suma["cw1h"] += zapis_1h
+        suma["cr"] += u.get("cache_read_input_tokens") or 0
+        if eff:
+            poziomy[eff] = poziomy.get(eff, 0) + 1
+    suma["eff"] = max(sorted(poziomy), key=poziomy.get) if poziomy else None
     return model, suma
 
 
 def zbierz(katalogi, od="2000-01-01"):
     """Zdarzenia z sesji głównych w `katalogi` (katalogi `projects`) od daty `od` (UTC, RRRR-MM-DD)."""
-    zdarzenia, agenci, pliki = [], {}, []
+    zdarzenia, agenci, pliki, katalogi_sesji = [], {}, [], {}
     for k in katalogi:
         pliki += sorted(glob.glob(os.path.join(str(k), "*", "*.jsonl")))
     try:          # plik niezmieniany od dnia przed `od` nie ma nowszych zdarzeń
@@ -143,6 +156,8 @@ def zbierz(katalogi, od="2000-01-01"):
                 ts = d.get("timestamp") or ""
                 if ts[:10] < od:
                     continue
+                if d.get("cwd") and sesja not in katalogi_sesji:   # katalog sesji: przypisanie PR do repo
+                    katalogi_sesji[sesja] = d["cwd"]
                 tresc = (d.get("message") or {}).get("content")
                 t = tekst_tresci(tresc)
                 if "[Subagent hand-back]" in t:          # raport podagenta w tle
@@ -160,7 +175,8 @@ def zbierz(katalogi, od="2000-01-01"):
                         we = c.get("input") or {}
                         oczekujace[c.get("id")] = {
                             "ts": ts, "s": sesja, "rodzaj": "start", "typ": we.get("subagent_type") or "general-purpose",
-                            "model_zadany": we.get("model"), "tlo": bool(we.get("run_in_background")),
+                            "model_zadany": we.get("model"), "effort_zadany": we.get("effort"),
+                            "tlo": bool(we.get("run_in_background")),
                             "pr": prs(we.get("description") or "") or prs((we.get("prompt") or "")[:1500])}
                     elif c.get("type") == "tool_use" and c.get("name") == "SendMessage":
                         we = c.get("input") or {}
@@ -178,6 +194,7 @@ def zbierz(katalogi, od="2000-01-01"):
                         zdarzenia.append(z)
                         if aid:
                             agenci[aid] = {"typ": z["typ"], "model": z["model"], "s": sesja, "ts": ts, "pr": z["pr"],
+                                           "effort_zadany": z["effort_zadany"],
                                            "_plik": os.path.join(plik[:-6], "subagents", "agent-" + pelny + ".jsonl")}
                         if not tur.get("isAsync"):       # raport synchroniczny: wynik narzędzia
                             zdarzenia.append({"ts": ts, "s": sesja, "rodzaj": "raport", "agent": aid,
@@ -205,7 +222,7 @@ def zbierz(katalogi, od="2000-01-01"):
         if ci:
             z["ci"] = ci
     zdarzenia.sort(key=lambda z: (z["s"], z["ts"]))
-    return {"zdarzenia": zdarzenia, "agenci": agenci,
+    return {"zdarzenia": zdarzenia, "agenci": agenci, "sesje": katalogi_sesji,
             "meta": {"format": 1, "czas": "utc", "od": od, "pliki": len(pliki),
                      "odczyt_utc": datetime.datetime.now(datetime.timezone.utc).isoformat()}}
 

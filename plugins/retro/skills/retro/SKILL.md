@@ -122,17 +122,28 @@ themselves (`references/sygnaly.md`, "Remote sources": output to a file and the 
 trend from what is in the archive.
 
 **Tokens and writing efficiency** („Tokeny i efektywność pisania”, mandatory section 2a of every retro): the
-summary compares the token and fix indicators with the last 3 retros in `metryki.csv`, shows cost by agent role
-and model week by week (from the trend archives, so also for remote sources), fix rounds in PRs merged on GitHub
-by author model (from `Co-Authored-By: Claude <Model>` trailers) and returns from review and CI in transcripts by
-implementer and model. In section 2a write: what got better and what got worse, with numbers against the previous
-2–3 retros; efficiency by implementer model (share of PRs with a fix, rounds per PR, returns, share of
-implementation cost); 2–3 suggestions, each with an expected effect and a measure for the next retro (e.g. move
-simple implementation to a cheaper model while its share of PRs with a fix does not grow). A model with fewer than
-5 PRs gives a hint, not a result; a round is not always a return from the tester (rebases, conflicts). Agent roles
-come from `role_agentow` in the configuration (`references/konfiguracja.md`); when the table shows a project's
-implementer or reviewer under "other subagents", propose adding its type there. A suggestion the user accepts
-becomes a recommendation in section 8 like any other.
+summary compares the token and fix indicators with the last 3 retros in `metryki.csv`, shows cost by agent role,
+model and reasoning effort week by week (from the trend archives, so also for remote sources), fix rounds in PRs
+merged on GitHub by author model (from `Co-Authored-By: Claude <Model>` trailers), returns from review and CI in
+transcripts by implementer and model, **cost and quality per PR by implementer configuration** (model · effort ·
+PR size) and the current agent definitions (`.claude/agents`: model, effort, role). In section 2a write: what got
+better and what got worse, with numbers against the previous 2–3 retros; efficiency by implementer configuration;
+and the **agent selection rules** table.
+
+The purpose of section 2a is to tune the rules that decide which agent, model and reasoning effort does which task.
+Judge a configuration by its **cost per PR** (the mean agent cost of merged PRs, fix rounds included, i.e. the
+expected cost of an accepted PR) together with the share of PRs with a fix, always within one role and PR size: a
+model that writes better is worth its price only if the saved fix rounds pay for it (lower cost per PR) or the
+user values the shorter time to merge. Price differences are already in the cost (current price list); reasoning
+effort changes both cost and quality, so compare e.g. Opus · high with Opus · medium and Sonnet · high as separate
+configurations. A row "main session" has no cost per PR (the session's own cost is not attributed to PRs): compare
+only its quality. Fewer than 5 PRs in a cell (`*`) is a hint: propose an experiment with a split and a measure
+instead of a rule. Each proposed rule names where it lives (the agent's `model:`/`effort:` in
+`.claude/agents/<name>.md`, or the routing rule in the project's `CLAUDE.md`), the expected effect and the measure
+for the next retros. A round is not always a return from the tester (rebases, conflicts). Agent roles come from
+`role_agentow` in the configuration (`references/konfiguracja.md`); when the table shows a project's implementer or
+reviewer under "other subagents", propose adding its type there. Rules the user accepts become recommendations in
+section 8 like any other.
 
 The summary contains notes about the data (paragraphs starting **Note:** / **Uwaga:**); take them into account
 before quoting numbers:

@@ -1,5 +1,31 @@
 # Zmiany
 
+## 0.4.0 · 2026-10-24
+
+Dane do reguł doboru agenta: który agent, na jakim modelu i poziomie rozumowania robi jakie zadanie. Jakość pisania
+ocenia się teraz razem z ceną: czy lepszy model albo wyższy poziom rozumowania oszczędza tyle poprawek, że opłaca się
+zamiast tańszego.
+
+- **Poziom rozumowania w danych.** Pole `effort` rekordów asystenta (low…max) trafia do wywołań, archiwum tokenów
+  i wyniku `zbierz_liczby.py` (`eff`) oraz do zdarzeń agentów (`effort_zadany` z wywołania, najczęstszy poziom
+  z transkrypcji podagenta). Tabela kosztu wg roli ma wiersze „rola · model · poziom”; nowa metryka
+  `koszt_wg_poziomu`.
+- **Koszt i jakość na PR wg konfiguracji implementatora.** Koszt każdego podagenta (z sum tokenów jego transkrypcji,
+  w cenach bieżących modeli rodziny) dzielony na PR, nad którymi pracował; PR łączone z rundami poprawek z GitHuba
+  po (repo, numer), a ze źródeł zdalnych po jednoznacznym numerze. Tabela wg „model · poziom” pierwszego
+  implementatora i rozmiaru PR (S/M/L z dodanych i usuniętych linii, progi `pr_progi_rozmiaru`): PR, odsetek
+  z poprawką, rundy, koszt implementacji i kontroli na PR, **koszt na PR** (= oczekiwany koszt zaakceptowanego PR,
+  bo zawiera rundy poprawek z ich częstością) i na 100 linii. PR implementowane w sesji głównej mają tylko jakość.
+- **Obecna konfiguracja agentów** z `.claude/agents/*.md` repozytoriów okna i `~/.claude/agents` (model, poziom,
+  rola), żeby propozycja reguły wskazywała plik do zmiany.
+- **Sekcja 2a** (szablony pl/en, `SKILL.md`): tabela „Reguły doboru agenta” (zadanie · teraz · proponowane · dane ·
+  miara), porównanie konfiguracji po koszcie na PR w tej samej roli i rozmiarze, eksperyment zamiast reguły przy
+  < 5 PR.
+- **Nowe kolumny `metryki.csv`** (na końcu): `pr_powiazane`, `koszt_na_pr_usd`, `koszt_na_pr_wg_konfiguracji`,
+  `koszt_wg_poziomu`; `koszt_na_pr_usd` dochodzi do porównania z poprzednimi retro.
+- **Poprawka:** tokeny podagenta liczone z rekordu z pełnym `usage` (wcześniej z pierwszego, częściowego rekordu
+  strumienia), zapis cache rozdzielony na 5 min i 1 h.
+
 ## 0.3.0 · 2026-10-24
 
 Tokeny i efektywność pisania w każdym retro: co było lepsze, co gorsze wobec 2–3 poprzednich retro, ile razy praca

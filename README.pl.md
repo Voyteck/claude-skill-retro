@@ -9,7 +9,9 @@ Co kilka dni roboczych (zalecane: co 2) retro:
 2. zbiera **dowody** z transkrypcji Claude Code, gita i GitHuba (wiadomości użytkownika, odpowiedzi na pytania,
    blokady, błędy narzędzi, podagenci, PR-y, CI, rozmiar plików reguł, tokeny i koszt w cenach API: kontekst,
    udział podagentów i Opusa, wybudzenia długich sesji) i mierzy **efektywność pisania**: koszt wg roli agenta
-   i modelu, rundy poprawek w scalonych PR wg modelu autora, powroty od przeglądu i CI, na tle 3 poprzednich retro;
+   i modelu, rundy poprawek w scalonych PR wg modelu autora, powroty od przeglądu i CI, koszt i jakość na PR wg
+   modelu, poziomu rozumowania implementatora i rozmiaru PR, na tle 3 poprzednich retro, żeby dobierać agenta,
+   model i poziom rozumowania do zadań;
 3. ocenia, **co działało, a co nie**, także po stronie użytkownika (opcjonalnie);
 4. proponuje **najwyżej 5 zmian**, preferując mechanizmy (testy, hooki, szablony) nad regułami w tekście;
 5. przyjęte zmiany **wdraża** do plików reguł (`CLAUDE.md`, pamięć, `nauki.md`) i rejestru zobowiązań.

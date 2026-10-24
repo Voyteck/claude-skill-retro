@@ -283,6 +283,36 @@ TEKSTY = {
                           "en": "Agent events `{nazwa}`: **not read** ({opis})."},
     "ef_zdarzenia_ok": {"pl": "Zdarzenia agentów `{nazwa}`: {opis}, {n} zdarzeń.",
                         "en": "Agent events `{nazwa}`: {opis}, {n} events."},
+    "ef_konf_tytul": {"pl": "### Koszt i jakość na PR wg konfiguracji implementatora (model · poziom rozumowania)",
+                      "en": "### Cost and quality per PR by implementer configuration (model · reasoning effort)"},
+    "ef_konf_opis": {
+        "pl": "Scalone PR z kilku tygodni, do których transkrypcje przypisują pracę podagentów (numer PR w zadaniu albo "
+              "kontynuacji). Konfiguracja = model i poziom rozumowania pierwszego implementatora PR („sesja główna”, gdy "
+              "pracowali tylko przegląd albo CI). Rozmiar: S ≤ {s} linii, M ≤ {m}, L > {m}. **Koszt na PR** to średni koszt "
+              "agentów (implementacja, przegląd, CI, także w rundach poprawek), czyli oczekiwany koszt zaakceptowanego PR; "
+              "porównuj go tylko w tym samym rozmiarze. Ceny bieżących modeli rodziny, bez kosztu sesji głównej; "
+              "dlatego wiersz „sesja główna” (implementacja w sesji) ma tylko jakość i koszt kontroli. "
+              "* = mniej niż {min_pr} PR: wskazówka, nie wynik.",
+        "en": "Merged PRs from several weeks to which transcripts attribute subagent work (PR number in the task or a "
+              "continuation). Configuration = model and reasoning effort of the PR's first implementer (\"main session\" "
+              "when only review or CI worked on it). Size: S ≤ {s} lines, M ≤ {m}, L > {m}. **Cost per PR** is the mean "
+              "agent cost (implementation, review, CI, fix rounds included), i.e. the expected cost of an accepted PR; "
+              "compare it only within one size. Current model prices of the family, main-session cost excluded; that "
+              "is why the \"main session\" row (implementation in the session) has only quality and control cost. "
+              "* = fewer than {min_pr} PRs: a hint, not a result."},
+    "ef_konf_brak": {"pl": "Brak scalonych PR z przypisanym kosztem agentów.",
+                     "en": "No merged PRs with attributed agent cost."},
+    "ef_konf_kolumny": {
+        "pl": "| implementator | rozmiar | PR | z poprawką | rund na PR | implementacja / PR | przegląd i CI / PR | koszt na PR | na 100 linii |",
+        "en": "| implementer | size | PRs | with a fix | rounds per PR | implementation / PR | review and CI / PR | cost per PR | per 100 lines |"},
+    "ef_konf_bez_kosztu": {
+        "pl": "PR bez przypisanej pracy agentów: {bez} z {wszystkie} (pisane w sesji głównej albo w transkrypcjach, "
+              "których skrypt nie widzi; ich jakość jest w tabeli wg modelu autora).",
+        "en": "PRs without attributed agent work: {bez} of {wszystkie} (written in the main session or in transcripts "
+              "the script does not see; their quality is in the author model table)."},
+    "ef_agenci_tytul": {"pl": "### Obecna konfiguracja agentów (`.claude/agents`)",
+                        "en": "### Current agent configuration (`.claude/agents`)"},
+    "ef_agenci_kolumny": {"pl": "| agent | rola | model | poziom | źródło |", "en": "| agent | role | model | effort | source |"},
 
     # sygnaly.py: podsumowanie
     "brak_katalogu": {

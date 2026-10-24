@@ -9,7 +9,9 @@ working days (recommended: every 2) the retro:
 2. gathers **evidence** from Claude Code transcripts, git and GitHub (user messages, answers to questions,
    blocks, tool errors, subagents, PRs, CI, size of rules files, tokens and cost at API prices: context, share of
    subagents and Opus, wake-ups of long sessions) and measures **writing efficiency**: cost by agent role and
-   model, fix rounds in merged PRs by author model, returns from review and CI, compared with the previous 3 retros;
+   model, fix rounds in merged PRs by author model, returns from review and CI, cost and quality per PR by
+   implementer model, reasoning effort and PR size, compared with the previous 3 retros, to tune which agent, model
+   and effort does which task;
 3. assesses **what worked and what did not**, also on the user's side (optional);
 4. proposes **at most 5 changes**, preferring mechanisms (tests, hooks, templates) over text-only rules;
 5. **implements** the accepted changes in rules files (`CLAUDE.md`, memory, `nauki.md`) and the commitments

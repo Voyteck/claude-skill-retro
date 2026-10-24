@@ -22,10 +22,21 @@
 
 - **Lepiej:** … (liczby, przyczyna, dowód)
 - **Gorzej:** … (liczby, przyczyna, dowód)
-- **Efektywność wg modelu implementatora:** PR z poprawką i rund na PR dla każdego modelu (Opus, Sonnet, Fable…),
-  powroty od przeglądu i CI, udział modelu w koszcie implementacji; przy < 5 PR modelu tylko wskazówka.
-- **Sugestie (2–3):** zmiana · oczekiwany efekt · miara (np. „implementacja prostych PR na Sonnecie, jeśli odsetek
-  PR z poprawką nie wzrośnie o więcej niż 10 pkt proc. w dwóch retro”).
+- **Efektywność wg konfiguracji implementatora** (model · poziom rozumowania, w tym samym rozmiarze PR): odsetek PR
+  z poprawką, rundy, powroty od przeglądu i CI, **koszt na PR** (oczekiwany koszt zaakceptowanego PR); przy < 5 PR
+  w komórce tylko wskazówka.
+
+**Reguły doboru agenta** (kto robi jakie zadanie, na jakim modelu i poziomie):
+
+| zadanie (rola · rozmiar) | teraz (agent · model · poziom) | proponowane | dane (PR, % z poprawką, koszt na PR) | miara w następnych retro |
+|---|---|---|---|---|
+
+- Zmiana na tańszą konfigurację ma sens, gdy koszt na PR spada, a odsetek PR z poprawką nie rośnie o więcej niż
+  10 pkt proc.; na droższą, gdy spadek poprawek obniża koszt na PR albo czas do scalenia.
+- Przy zbyt małej liczbie PR zaproponuj eksperyment zamiast reguły (np. „co drugi PR rozmiaru S do
+  `programista-prosty`”, przez dwa retro).
+- **Sugestie (2–3):** zmiana · oczekiwany efekt · miara (np. „implementacja PR rozmiaru S na Sonnecie · medium,
+  dopóki odsetek PR z poprawką nie wzrośnie o więcej niż 10 pkt proc., a koszt na PR jest niższy niż na Opusie”).
 
 ## 3. Rozliczenie zobowiązań
 

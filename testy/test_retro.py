@@ -976,6 +976,7 @@ class Test030(Srodowisko):
             "oid": "x", "authoredDate": iso(m), "messageHeadline": naglowek, "parents": {"totalCount": 1},
             "messageBody": f"Opis\n\nCo-Authored-By: Claude {model} <noreply@anthropic.com>" if model else "Opis"}}
         pr = lambda n, galaz, commity: {"number": n, "createdAt": iso(-300), "mergedAt": iso(-5), "headRefName": galaz,  # noqa: E731
+                                        "additions": 30 * n, "deletions": 10, "changedFiles": 2,
                                         "commits": {"totalCount": len(commity), "nodes": commity}}
         odpowiedz = {"data": {"search": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [
             pr(12, "feat/hook", [commit(-300, "Opus 5.5"), commit(-120, "Opus 5.5", "fix: przegląd")]),
@@ -1275,6 +1276,115 @@ class TestKalendarz(unittest.TestCase):
         self.assertTrue(wspolne.dzien_roboczy(dt.date(2026, 11, 11), {"kalendarz": "brak"}))
         self.assertFalse(wspolne.dzien_roboczy(dt.date(2026, 10, 9), {"kalendarz": "PL", "dni_wolne_dodatkowe": ["2026-10-09"]}))
         self.assertEqual(wspolne.dni_robocze_po(dt.date(2026, 10, 8), dt.date(2026, 10, 15)), 5)
+
+
+class Test040(Srodowisko):
+    """Zmiany 0.4.0: poziom rozumowania w danych, koszt i jakość na PR wg konfiguracji implementatora, rozmiar PR."""
+
+    dopisz = TestSygnalyUzupelnienia.dopisz
+    falszywy_gh = Test030.falszywy_gh
+
+    def test_tokeny_agenta_z_poziomem(self):
+        import zdarzenia_agentow as za
+        plik = self.tmp / "agent.jsonl"
+        plik.write_text("\n".join(json.dumps(r) for r in [
+            wywolanie("a", dt.timedelta(minutes=-3), wyj=10, z1h=500, effort="high"),     # częściowy usage
+            wywolanie("a", dt.timedelta(minutes=-3), wyj=100, z1h=500, effort="high"),
+            wywolanie("b", dt.timedelta(minutes=-2), wej=5, z5=300, odcz=1000, effort="high"),
+            wywolanie("c", dt.timedelta(minutes=-1), wyj=7, effort="low"),
+            wywolanie("s", dt.timedelta(minutes=-1), model="<synthetic>", wyj=999),
+        ]) + "\n", encoding="utf-8")
+        model, suma = za.tokeny_agenta(str(plik))
+        self.assertEqual(model, "claude-opus-5-5")
+        self.assertEqual(suma, {"inp": 5, "out": 107, "cw": 800, "cw5": 300, "cw1h": 500, "cr": 1000, "wyw": 3,
+                                "eff": "high"})
+
+    def test_koszty_i_polaczenie_z_pr(self):
+        import efektywnosc as ef
+        cennik = __import__("tokeny").wczytaj_cennik({})
+        tok = lambda out: {"inp": 0, "out": out, "cw": 0, "cw5": 0, "cw1h": 0, "cr": 0, "wyw": 1, "eff": "high"}  # noqa: E731
+        lokalne = {"agenci": {
+            "p1": {"typ": "programista", "model": "claude-opus-5-5", "s": "s1", "ts": "2026-10-20T10:00:00Z", "pr": [12],
+                   "tokeny": tok(1_000_000)},                                                   # $20 (Opus, wyjście)
+            "p2": {"typ": "programista-prosty", "model": "claude-sonnet-5-5", "s": "s1", "ts": "2026-10-20T09:00:00Z",
+                   "pr": [12, 14], "effort_zadany": "medium", "tokeny": dict(tok(1_000_000), eff=None)},
+            "r1": {"typ": "przeglad-mechaniczny", "model": "claude-sonnet-5-5", "s": "s1", "ts": "2026-10-20T11:00:00Z",
+                   "pr": [12], "tokeny": tok(100_000)},
+            "x": {"typ": "Explore", "model": "claude-haiku-5-5", "s": "s1", "ts": "2026-10-20T11:00:00Z", "pr": [],
+                  "tokeny": tok(1000)},
+            "p3": {"typ": "programista", "model": "claude-opus-5-5", "s": "s2", "ts": "2026-10-20T10:00:00Z", "pr": [99],
+                   "tokeny": tok(1000)}},
+            "zdarzenia": [{"rodzaj": "kontynuacja", "agent": "p1", "pr": [13], "s": "s1", "ts": "2026-10-20T12:00:00Z"}]}
+        zdalne = {"agenci": {"z1": {"typ": "programista", "model": "claude-fable-5-1", "s": "k1", "ts": "2026-10-20T08:00:00Z",
+                                    "pr": [15, 16], "tokeny": tok(1000)}}, "zdarzenia": []}
+        koszty = ef.koszty_pr([(lokalne, {"s1": "w/r", "s2": "?"}), (zdalne, {})], ef.wzorce_rol({}), cennik)
+        sonnet = ef.koszt_agenta(lokalne["agenci"]["p2"], cennik)
+        self.assertAlmostEqual(koszty[("w/r", 12)]["koszt"]["implementacja"], 10 + sonnet / 2)   # p1 dzielony na PR 12 i 13
+        self.assertEqual(koszty[("w/r", 12)]["impl"][:3], ("programista-prosty", "claude-sonnet-5-5", "medium"))  # pierwszy
+        self.assertGreater(koszty[("w/r", 12)]["koszt"]["przeglad"], 0)
+        self.assertAlmostEqual(koszty[("w/r", 13)]["koszt"]["implementacja"], 10)
+        scalony = dt.datetime(2026, 10, 21, tzinfo=dt.timezone.utc)
+        rundy = [{"repo": "w/r", "pr": n, "scalony": scalony, "tydzien": dt.date(2026, 10, 19), "autor": "Opus",
+                  "rundy": n % 2, "commity": 2, "poprawki": {}, "h": 1.0, "linie": linie}
+                 for n, linie in ((12, 40), (14, 400), (15, 100), (99, 10), (77, 10))]
+        rundy.append(dict(rundy[2], repo="w/inne"))                   # PR 15 w dwóch repo: numer niejednoznaczny
+        polaczone = {(r["repo"], r["pr"]): r for r in ef.polacz_pr(rundy, koszty)}
+        self.assertEqual(polaczone[("w/r", 14)]["pr_impl"][2], "medium")
+        self.assertIsNone(polaczone[("w/r", 15)]["pr_koszt"])          # zdalny PR 15: numer w dwóch repo
+        self.assertIsNone(polaczone[("w/r", 99)]["pr_koszt"])          # sesja z repo „?” nie pasuje po numerze
+        self.assertIsNone(polaczone[("w/r", 77)]["pr_koszt"])
+        grupy = ef.tabela_konfiguracji(list(polaczone.values()))
+        self.assertEqual(sorted(grupy), [("Sonnet · medium", "L"), ("Sonnet · medium", "S")])
+        o = ef.opis_konfiguracji(grupy[("Sonnet · medium", "S")])
+        self.assertAlmostEqual(o["na_pr"], 10 + sonnet / 2 + koszty[("w/r", 12)]["koszt"]["przeglad"])
+        self.assertAlmostEqual(o["na_100_linii"], o["na_pr"] * 100 / 40)
+        self.assertEqual([ef.rozmiar(n) for n in (None, 50, 51, 300, 301)], ["?", "S", "M", "M", "L"])
+        self.assertEqual(ef.rozmiar(60, [100, 200]), "S")
+
+    def test_konfiguracja_agentow(self):
+        import efektywnosc as ef
+        agenci = self.repo / ".claude" / "agents"
+        agenci.mkdir(parents=True)
+        (agenci / "programista.md").write_text("---\nname: programista\ndescription: x\nmodel: opus\neffort: high\n---\n"
+                                               "treść\nmodel: haiku\n", encoding="utf-8")
+        (agenci / "bez-naglowka.md").write_text("# nic\n", encoding="utf-8")
+        (agenci / "przeglad.md").write_text("---\nmodel: 'sonnet'\n---\n", encoding="utf-8")
+        self.assertEqual(ef.konfiguracja_agentow([("repo", agenci), ("brak", self.tmp / "nie-ma")]),
+                         [("programista", "opus", "high", "repo"), ("przeglad", "sonnet", None, "repo")])
+
+    def test_poziom_rozumowania_i_koszt_na_pr_w_podsumowaniu(self):
+        self.dopisz("f-repo", "sesja-repo.jsonl", praca_agentow(str(self.repo))
+                    + [wywolanie("g0", dt.timedelta(minutes=-61), wyj=100, cwd=str(self.repo), effort="xhigh")])
+        pod = self.claude / "projects" / "f-repo" / "sesja-repo" / "subagents"
+        pod.mkdir(parents=True)
+        (pod / f"agent-{AGENT_PROG}.meta.json").write_text(json.dumps({"agentType": "programista"}), encoding="utf-8")
+        (pod / f"agent-{AGENT_PROG}.jsonl").write_text(json.dumps(wywolanie(
+            "p1", dt.timedelta(minutes=-58), wyj=1000, cwd=str(self.repo), effort="high")) + "\n", encoding="utf-8")
+        agenci = self.repo / ".claude" / "agents"
+        agenci.mkdir(parents=True)
+        (agenci / "programista.md").write_text("---\nmodel: opus\neffort: high\n---\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.repo), "remote", "add", "origin", "https://example.com/w/r.git"], check=True)
+        gh = self.falszywy_gh()
+        self.zaloz_konto()
+        ws = self.tmp / "ws"
+        konf = json.loads((ws / "konfiguracja.json").read_text(encoding="utf-8"))
+        konf["gh"] = gh
+        (ws / "konfiguracja.json").write_text(json.dumps(konf), encoding="utf-8")
+        wyjscie = self.tmp / "wyn"
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--wyjscie", str(wyjscie))
+        m = json.loads((wyjscie / "metryki.json").read_text(encoding="utf-8"))
+        self.assertEqual((m["pr_powiazane"], m["koszt_na_pr_usd"], m["koszt_na_pr_wg_konfiguracji"]),
+                         (1, 0.02, "Opus/high:0.02"))
+        self.assertEqual(m["koszt_wg_poziomu"], "high:91;xhigh:9")         # $0.02 programista, $0.002 sesja główna
+        arch = json.loads((ws / "dane" / "tokeny-archiwum.json").read_text(encoding="utf-8"))
+        self.assertEqual((arch["calls"]["p1"]["eff"], arch["calls"]["g0"]["eff"]), ("high", "xhigh"))
+        p = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("| implementacja · Opus · high |", p)
+        self.assertIn("| sesja główna · Opus · xhigh |", p)
+        self.assertIn("### Koszt i jakość na PR wg konfiguracji implementatora", p)
+        self.assertIn("| Opus · high | L | 1* | 100% | 1 | $0.02 | $0.00 | **$0.02** | $0.01 |", p)   # 370 linii
+        self.assertIn("PR bez przypisanej pracy agentów: 1 z 2", p)
+        self.assertIn("| programista | implementacja | opus | high | repo |", p)
 
 
 if __name__ == "__main__":
