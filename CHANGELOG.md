@@ -28,6 +28,22 @@ wracała od przeglądu i CI do implementacji i jak to zależy od modelu, który 
 - **Szablony retro** (`assets/pl`, `assets/en`): obowiązkowa sekcja „2a. Tokeny i efektywność pisania” (porównanie
   z 2–3 poprzednimi retro, lepiej/gorzej z liczbami, efektywność wg modelu implementatora, 2–3 sugestie z efektem
   i miarą); `SKILL.md` opisuje, jak ją wypełnić. Ograniczenia pomiaru: `references/sygnaly.md`.
+## 0.2.2 · 2026-10-24
+
+Poprawka z retro autora (R04): wiadomości właściciela poprzedzone przypomnieniem systemowym.
+
+- **Wiadomość właściciela po bloku `<system-reminder>` jest liczona.** Aplikacja Claude dokleja na początek
+  wiadomości właściciela przypomnienia (np. „Linked sessions now…”, gdy sesja ma sesje poboczne), a `sygnaly.py`
+  i `zbierz_liczby.py` odrzucały każdy tekst zaczynający się od `<system-reminder`. Teraz początkowe bloki są
+  zdejmowane (nowa funkcja `sygnaly.zdejmij_przypomnienia`, wspólna z przyczynami wybudzeń) i dopiero reszta jest
+  rozpoznawana; oś czasu pokazuje wiadomość bez bloku. Sam blok bez reszty nadal nie jest wiadomością, a reszta
+  będąca powiadomieniem (`<side-sessions-event>`, „The app was quit…”, `<cross-session-message>`, brief innej
+  sesji) też nie: oba skrypty mają teraz tę samą listę takich początków.
+- **Uwaga do porównań:** od tej wersji `wiad_wlasciciela` (i to, co z niej wynika: `koszt_na_wiadomosc_usd`,
+  `koszt_na_wiad` w trendzie, `owner` w archiwum tokenów) rośnie w sesjach z sesjami pobocznymi, więc nie jest
+  porównywalne z retro sprzed 0.2.2. Na transkrypcjach autora: 183 → 219 wiadomości (+20%). Archiwum trendu łączy
+  stare i nowe odczyty, więc tygodnie, których transkrypcje jeszcze istnieją, zostaną przeliczone w górę przy
+  najbliższym retro; starsze zostają zaniżone.
 
 ## 0.2.1 · 2026-10-24
 

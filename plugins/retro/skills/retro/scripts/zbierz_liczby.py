@@ -20,7 +20,16 @@ import os
 import sys
 
 NIE_WLASCICIEL = ("<local-command", "<task-notification", "[Cross-session", "<cross-session-message",
-                  "<system-reminder", "Background (from the session", "<agent-message", "Caveat:")
+                  "<system-reminder", "Background (from the session", "<side-sessions-event", "<agent-message",
+                  "Another Claude session", "The app was quit", "Caveat:")
+
+
+def bez_przypomnien(t):
+    """Tekst bez bloków <system-reminder> na początku (aplikacja dokleja je też do wiadomości właściciela)."""
+    t = t.lstrip()
+    while t.startswith("<system-reminder>") and "</system-reminder>" in t:
+        t = t.partition("</system-reminder>")[2].lstrip()
+    return t
 
 
 def tekst(c):
@@ -38,7 +47,7 @@ def wlasciciel(r, t):
     o = r.get("origin")
     if isinstance(o, dict) and o.get("kind") not in ("human", None):
         return False
-    t = t.strip()
+    t = bez_przypomnien(t).strip()
     return bool(t) and not t.startswith(NIE_WLASCICIEL) and not t.startswith("<command-name>")
 
 

@@ -33,7 +33,7 @@ most interesting places to read in the timeline.
 
 | metric | source | note |
 |---|---|---|
-| `wiad_wlasciciela` | messages typed by the user | without `/…` commands, notifications and messages between sessions; including those sent while Claude was working (`queued_command` records, marked as such in the timeline) |
+| `wiad_wlasciciela` | messages typed by the user | without `/…` commands, notifications and messages between sessions; including those sent while Claude was working (`queued_command` records, marked as such in the timeline); since 0.2.2 also those the app prefixes with a `<system-reminder>` block (the block is stripped first), so the count is higher than in earlier retros in sessions with side sessions |
 | `wiad_mozliwa_korekta` | words like "no", "why", "again" (Polish and English lists) | a heuristic with a lot of noise; trend only. Marked `[K?]` (pl) / `[C?]` (en) in timelines |
 | `wiad_po_20` | messages outside working hours (`godziny_pracy`) | |
 | `pytania`, `pyt_*` | answers to AskUserQuestion | see the classes above |

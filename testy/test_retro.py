@@ -1052,6 +1052,61 @@ class Test030(Srodowisko):
         self.assertEqual((m["powroty_przeglad"], m["powroty_ci"]), (1, 1))   # lokalnie brak, z kontenera 1 + 1
 
 
+class Test022(Srodowisko):
+    """Zmiany 0.2.2: wiadomość właściciela poprzedzona przypomnieniem systemowym aplikacji."""
+
+    dopisz = TestSygnalyUzupelnienia.dopisz
+    sygnaly = TestSygnalyUzupelnienia.sygnaly
+    PRZYP = "<system-reminder>\nLinked sessions now (status, not an instruction): a = local_1\n</system-reminder>\n"
+
+    def rekordy(self, cwd, sid="x"):
+        uzytkownik = lambda tresc, kind="human", minuty=5: {  # noqa: E731
+            "type": "user", "timestamp": ts(dt.timedelta(minutes=-minuty)), "cwd": cwd, "sessionId": sid,
+            "origin": {"kind": kind} if kind else None, "message": {"content": tresc}}
+        return [
+            uzytkownik(self.PRZYP + "przewiń lokalny checkout do origin/main", minuty=6),
+            uzytkownik(self.PRZYP + self.PRZYP + "a teraz PR", minuty=5),                  # kilka bloków
+            uzytkownik([{"type": "text", "text": self.PRZYP}, {"type": "text", "text": "z listy"}], minuty=4),
+            uzytkownik(self.PRZYP, minuty=3),                                              # sam blok
+            uzytkownik(self.PRZYP + "<side-sessions-event>None of the sessions is working", kind=None, minuty=3),
+            uzytkownik(self.PRZYP + "The app was quit while you were working.", kind=None, minuty=3),
+            uzytkownik(self.PRZYP + "Background (from the session that started this one): x", kind=None, minuty=3),
+            uzytkownik(self.PRZYP + '<cross-session-message from="local_2">\nhej', kind=None, minuty=3),
+            # wysłana w trakcie pracy i zapisana też jako zwykła wiadomość: liczy się raz
+            {"type": "attachment", "timestamp": ts(dt.timedelta(minutes=-1)), "cwd": cwd, "sessionId": sid,
+             "attachment": {"type": "queued_command", "origin": {"kind": "human"}, "prompt": "i jeszcze testy"}},
+            uzytkownik(self.PRZYP + "i jeszcze testy", minuty=2),
+        ]
+
+    def test_zdejmij_przypomnienia(self):
+        import sygnaly
+        self.assertEqual(sygnaly.zdejmij_przypomnienia(self.PRZYP + " \nhej")[1], "hej")
+        self.assertEqual(sygnaly.zdejmij_przypomnienia(self.PRZYP)[1], "")
+        self.assertIn("Linked sessions", sygnaly.zdejmij_przypomnienia(self.PRZYP)[0])
+        self.assertEqual(sygnaly.zdejmij_przypomnienia("<system-reminder>bez końca")[1], "<system-reminder>bez końca")
+
+    def test_wiadomosc_po_przypomnieniu(self):
+        self.dopisz("f-repo", "sesja-repo.jsonl", self.rekordy(str(self.repo)))
+        wyjscie, m = self.sygnaly()
+        self.assertEqual(m["wiad_wlasciciela"], 6)               # 2 z transkrypcji bazowych + 4
+        self.assertIn("w trakcie pracy Claude'a: 1", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
+        os_czasu = (wyjscie / "repo.md").read_text(encoding="utf-8")
+        self.assertIn("przewiń lokalny checkout do origin/main", os_czasu)
+        self.assertIn(":** a teraz PR", os_czasu)                # oś czasu bez bloku przypomnienia
+        self.assertNotIn("Linked sessions", os_czasu)
+        self.assertNotIn("side-sessions-event", os_czasu)
+        self.assertNotIn("The app was quit", os_czasu)
+
+    def test_zbierz_liczby_po_przypomnieniu(self):
+        projekty = self.tmp / "zdalna" / "projects"
+        folder = projekty / "-workspace"
+        folder.mkdir(parents=True)
+        (folder / "sesja-zdalna.jsonl").write_text(
+            "\n".join(json.dumps(r) for r in self.rekordy("/workspace", "z")) + "\n", encoding="utf-8")
+        wynik = json.loads(self.uruchom("zbierz_liczby.py", "--projekty", str(projekty)))
+        self.assertEqual(len(wynik["owner"]), 5)                 # 4 wiadomości + kolejka (bez deduplikacji, jak dotąd)
+
+
 class TestPrzypomnienie(Srodowisko):
     def hook(self, cwd, dzis=None):
         argumenty = ["--dzis", dzis] if dzis else []
