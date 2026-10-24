@@ -91,8 +91,25 @@ contradictory? dead? The result is the first register (at most 10 active) for th
 ## Step 1. Data
 
 ```
-python "${CLAUDE_SKILL_DIR}/scripts/sygnaly.py" --od YYYY-MM-DD
+python "${CLAUDE_SKILL_DIR}/scripts/sygnaly.py" --od YYYY-MM-DD [--chmura FILE] [--plan-uzyty PCT]
 ```
+
+Before running it, gather two optional inputs the script cannot see (both came from the retired
+`claude-usage-report` skill, which retro replaces since 0.5.0):
+
+- **Cloud sessions** (claude.ai/code) leave no local transcript. When this session has the Remote MCP tools
+  `list_sessions` and `get_session`, call `list_sessions` once (page only as far as sessions updated inside the
+  window), then ONE `get_session` per session updated inside the window and take `external_metadata.usage.cost_usd`
+  (the session's lifetime cost). Write `[{"id": "<session id>", "title": "<short title>", "cost_usd": 12.34}]` to a
+  scratch file and pass it with `--chmura`. The script keeps every reading in `dane/chmura-archiwum.json` and counts
+  only what was spent since the last reading before the window; a session read for the first time counts whole
+  ("first reading"). Never page a session's events or transcript to rebuild its usage: one week of a handful of
+  sessions once cost about 0.6M tokens and a thousand tool calls that way. Without the tools the summary says "not
+  measured"; do not ask the user for the numbers.
+- **Share of the plan:** ask the user once, in the step-1 question round, how much of their plan the window used
+  (a `[fact]` question; options e.g. "about 20%", "about 50%", "I don't know"). With an answer pass `--plan-uzyty`;
+  the summary then gives cost, owner messages and merged PRs per 10% of the plan, the only totals that compare
+  between windows of different lengths. "I don't know" = leave it out.
 
 Output in `<working dir>/dane/sygnaly-<from>_<to>/`: `podsumowanie.md`, `metryki.json`, `<project>.md`
 (timeline). Reports are in the configured language (English for languages other than `pl`). Read the summary and
@@ -108,6 +125,14 @@ has its cause (the user's message, a background task or subagent, another sessio
 fits the cause, e.g. a hook on the user's message does not help against wake-ups by background tasks. Local
 tokens do not cover work in a sandbox or in the cloud: when the repo has usage records from those environments
 (e.g. an export from another tool), take the cost per merged PR from them.
+
+The section "Tool calls: refused and failed" („Wywołania narzędzi: odrzucone i nieudane”) counts refusals (the
+harness stopped the call: worktree guard, classifier, user rejection, blocked sleep, hook, permission rule) and
+failures (command exit code, Edit/Write without a prior Read, tool input error, missing file) by cause, for the main
+session and subagents. Each refusal is a full-context turn spent for nothing: above 2 per 100 tool calls, put the
+most frequent cause into "what did not work" and propose a mechanism that removes it (an allowed read-only command,
+a script instead of a compound one-liner, waiting in the background), not a stricter sentence. A large
+"Edit/Write without a prior Read" count is a habit with a known fix (read the file with the Read tool before editing).
 
 Also read the "Token trend" („Trend tokenów”) section: week by week from `tokeny-tydzien.csv` (the script appends
 new weeks and overwrites the incomplete one), the last 4 weeks against the median of the 8 earlier ones. Put an

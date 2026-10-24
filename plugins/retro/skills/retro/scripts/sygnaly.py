@@ -69,6 +69,38 @@ NIE_WLASCICIEL = ("<local-command", "<task-notification", "[Cross-session", "<cr
 PRZYCZYNY_WYBUDZEN = ("wlasciciel", "tlo", "sesja", "inne")
 INNA_SESJA = ("<agent-message", "<cross-session-message", "[Cross-session", "Another Claude session",
               "Background (from the session")
+# Wynik narzędzia z błędem: odrzucone (środowisko zatrzymało wywołanie, zanim ruszyło; każde to tura z pełnym
+# kontekstem na nic) albo nieudane (narzędzie ruszyło i zwróciło błąd). Pierwsza pasująca przyczyna wygrywa.
+# Wzorce za claude-usage-report (zastąpiony przez retro 0.5.0) plus Edit/Write bez wcześniejszego Read.
+PRZYCZYNY_ODRZUCEN = [
+    ("worktree", re.compile(r"isolated in the worktree|too complex to verify", re.I)),
+    ("klasyfikator", re.compile(r"classifier", re.I)),
+    ("odmowa_wlasciciela", re.compile(r"doesn't want to proceed|was rejected|user rejected|user denied", re.I)),
+    ("sleep", re.compile(r"Blocked: sleep", re.I)),
+    ("hook", re.compile(r"hook .*(?:blocked|denied)|blocked by (?:a )?hook", re.I)),
+    ("uprawnienia", re.compile(r"permission .*(?:has been|was) denied|denied by|not allowed", re.I)),
+    ("zablokowane_inne", re.compile(r"<tool_use_error>\s*Blocked", re.I)),
+]
+PRZYCZYNY_NIEPOWODZEN = [
+    ("edit_bez_read", re.compile(r"has not been read yet|modified since (?:it was )?read", re.I)),
+    ("kod_wyjscia", re.compile(r"^\s*Exit code \d+", re.I)),
+    ("blad_wejscia", re.compile(r"<tool_use_error>", re.I)),
+    ("brak_pliku", re.compile(r"does not exist|no such file", re.I)),
+]
+PROG_ODRZUCEN_NA_100 = 2
+
+
+def klasyfikuj_blad(tekst: str) -> tuple:
+    """(„odrzucenie” | „niepowodzenie”, przyczyna) wyniku narzędzia z błędem."""
+    for przyczyna, wzor in PRZYCZYNY_ODRZUCEN:
+        if wzor.search(tekst):
+            return "odrzucenie", przyczyna
+    for przyczyna, wzor in PRZYCZYNY_NIEPOWODZEN:
+        if wzor.search(tekst):
+            return "niepowodzenie", przyczyna
+    return "niepowodzenie", "inny_blad"
+
+
 EPOKA = dt.datetime(2000, 1, 1).astimezone()
 # Commit lub PR „bez lokalnej sesji”: brak zapisu w transkrypcjach tego repo w tym odstępie.
 MARGINES_SESJI_MIN = 30
@@ -271,6 +303,7 @@ class Sesja:
         self.zdarzenia = []       # (czas, rodzaj, dane)
         self.licz = collections.Counter()
         self.bledy = collections.Counter()
+        self.wyniki_bledne = collections.Counter()     # (sesja | podagenci, odrzucenie | niepowodzenie, przyczyna)
         self.podagenci = collections.Counter()         # (typ, model z wywołania)
         self.podagenci_modele = collections.Counter()  # (typ, model faktyczny)
         self.pr = set()
@@ -381,6 +414,7 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                 for x in tresc:
                     if x.get("type") != "tool_use":
                         continue
+                    s.licz["narzedzia"] += 1
                     nazwa, wej = x.get("name"), x.get("input") or {}
                     if nazwa in ("Agent", "Task"):
                         s.licz["podagenci"] += 1
@@ -431,6 +465,8 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                                 "odpowiedz": odp, "klasa": klasa}))
                         continue
                     low = wynik[:400].lower()
+                    if x.get("is_error") or "classifier" in low or "doesn't want to proceed" in low:
+                        s.wyniki_bledne[("sesja", *klasyfikuj_blad(wynik[:2000]))] += 1
                     if "denied by the claude code auto mode classifier" in low:
                         s.licz["blokady_klasyfikatora"] += 1
                         s.zdarzenia.append((czas, "blokada", {"narzedzie": nazwa, "wejscie": skroc(json.dumps(wej, ensure_ascii=False), 300)}))
@@ -485,9 +521,22 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                         if wynik:
                             wynik[1]["agent"] = typ_ag      # rola agenta w koszcie (efektywnosc.py)
                             dodaj_wywolanie(s.wywolania, wynik)
+                    if not (czas and od <= czas < do):
+                        continue
                     if d.get("type") == "user" and "denied by the Claude Code auto mode classifier" in linia:
-                        if czas and od <= czas < do:
-                            s.licz["blokady_u_podagentow"] += 1
+                        s.licz["blokady_u_podagentow"] += 1
+                    tresc_pod = (d.get("message") or {}).get("content")
+                    if not isinstance(tresc_pod, list):
+                        continue
+                    for x in tresc_pod:
+                        if not isinstance(x, dict):
+                            continue
+                        if d.get("type") == "assistant" and x.get("type") == "tool_use":
+                            s.licz["narzedzia_u_podagentow"] += 1
+                        elif d.get("type") == "user" and x.get("type") == "tool_result":
+                            wynik_pod = tekst_tresci([x])
+                            if x.get("is_error") or "classifier" in wynik_pod[:400].lower():
+                                s.wyniki_bledne[("podagenci", *klasyfikuj_blad(wynik_pod[:2000]))] += 1
             if w_oknie:
                 s.podagenci_modele[(typ_ag, model)] += 1
     return s
@@ -840,6 +889,44 @@ def raport_projektu(nazwa, sesje, od_data, do_data) -> str:
     return "\n".join(l) + "\n"
 
 
+def wyniki_narzedzi(sesje: list) -> dict:
+    """Wywołania narzędzi, odrzucone i nieudane wg przyczyny (sesja główna i podagenci) oraz metryki od 0.5.0."""
+    licz, bledne = collections.Counter(), collections.Counter()
+    for s in sesje:
+        licz.update({"sesja": s.licz["narzedzia"], "podagenci": s.licz["narzedzia_u_podagentow"]})
+        bledne.update(s.wyniki_bledne)
+    wszystkie = licz["sesja"] + licz["podagenci"]
+    odrzucenia, niepowodzenia = collections.Counter(), collections.Counter()
+    for (_, rodzaj, przyczyna), n in bledne.items():         # suma sesji głównej i podagentów
+        (odrzucenia if rodzaj == "odrzucenie" else niepowodzenia)[przyczyna] += n
+    jako_tekst = lambda c: ";".join(f"{k}:{n}" for k, n in c.most_common()) or None  # noqa: E731
+    n_odrz = sum(odrzucenia.values())
+    return {"licz": licz, "bledne": bledne, "metryki": {
+        "narzedzia_wywolania": wszystkie, "odrzucenia": n_odrz,
+        "odrzucenia_na_100": round(100 * n_odrz / wszystkie, 2) if wszystkie else None,
+        "odrzucenia_wg_przyczyny": jako_tekst(odrzucenia),
+        "niepowodzenia_wg_przyczyny": jako_tekst(niepowodzenia)}}
+
+
+def raport_narzedzi(wyn: dict) -> list:
+    licz, bledne, m = wyn["licz"], wyn["bledne"], wyn["metryki"]
+    l = ["", t("narz_tytul"), "", t("narz_opis", sesja=licz["sesja"], podagenci=licz["podagenci"],
+                                   odrz=m["odrzucenia"], na100="—" if m["odrzucenia_na_100"] is None
+                                   else f"{m['odrzucenia_na_100']:g}")]
+    for rodzaj, przyczyny in (("odrzucenie", PRZYCZYNY_ODRZUCEN), ("niepowodzenie", PRZYCZYNY_NIEPOWODZEN)):
+        klucze = [p for p, _ in przyczyny] + (["inny_blad"] if rodzaj == "niepowodzenie" else [])
+        wiersze = [(p, bledne[("sesja", rodzaj, p)], bledne[("podagenci", rodzaj, p)]) for p in klucze]
+        wiersze = [w for w in wiersze if w[1] or w[2]]
+        if not wiersze:
+            continue
+        l += ["", t("narz_" + rodzaj), "", t("narz_kolumny"), "|---|---|---|---|"]
+        l += [f"| {t('przyczyna_narz_' + p)} | {a} | {b} | {a + b} |"
+              for p, a, b in sorted(wiersze, key=lambda w: -(w[1] + w[2]))]
+    if m["odrzucenia_na_100"] is not None and m["odrzucenia_na_100"] > PROG_ODRZUCEN_NA_100:
+        l += ["", t("narz_sygnal", prog=PROG_ODRZUCEN_NA_100)]
+    return l
+
+
 def tys(n) -> str:
     return "—" if n is None else f"{n / 1000:.0f}k"
 
@@ -1034,6 +1121,8 @@ def main(argv=None):
                     help=f"nie zapisuj archiwum tokenów ani {tokeny.PLIK_TRENDU} w katalogu roboczym")
     ap.add_argument("--bez-zdalnych", action="store_true",
                     help="nie odczytuj źródeł zdalnych trendu (`zrodla_zdalne` w konfiguracji)")
+    ap.add_argument("--chmura", help="JSON z kosztem sesji w chmurze: [{id, title, cost_usd}] (z `get_session` Remote MCP)")
+    ap.add_argument("--plan-uzyty", type=float, help="ile procent planu zużyło okno (np. 30): wartości na 10%% planu")
     a = ap.parse_args(argv)
 
     if a.katalog:
@@ -1153,6 +1242,16 @@ def main(argv=None):
     pamiec_liczba, pamiec_zmiany, pamiec_bez_sesji = pamiec(foldery, od, projekty_folderow)
     ef = efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh, sesje, od, do, od_data, do_data,
                             projekty)
+    narzedzia = wyniki_narzedzi(sesje)
+    chmura, chmura_uwaga = None, None
+    if a.chmura:
+        try:
+            lista = json.loads(pathlib.Path(a.chmura).read_text(encoding="utf-8"))
+            if not isinstance(lista, list):
+                raise ValueError("oczekiwano listy [{id, title, cost_usd}]")
+            chmura = tokeny.chmura_okna(lista, (katalog if katalog is not None else wyjscie) / tokeny.PLIK_CHMURY, od)
+        except (OSError, ValueError, TypeError, AttributeError) as e:
+            chmura_uwaga = t("chmura_blad", plik=a.chmura, blad=e)
 
     suma = collections.Counter()
     for s in sesje:
@@ -1192,7 +1291,21 @@ def main(argv=None):
         # od 0.4.0: koszt agentów na PR, wg konfiguracji implementatora, udział poziomów rozumowania
         **efektywnosc.metryki_okna(ef["rundy"], od, do, ef["powroty"], tok["wywolania_okna"], ef["wzorce"],
                                    ef["polaczone"]),
+        # od 0.5.0 (z claude-usage-report): wywołania narzędzi odrzucone i nieudane, sesje w chmurze, udział w planie
+        **narzedzia["metryki"],
+        "chmura_koszt_usd": chmura["okno"] if chmura else None,
+        "chmura_sesje": len(chmura["sesje"]) if chmura else None,
+        "chmura_nowe": chmura["nowe"] if chmura else None,
+        "plan_uzyty_proc": a.plan_uzyty,
     }
+    if a.plan_uzyty:
+        skala = 10 / a.plan_uzyty
+        metryki.update({
+            "koszt_na_10proc_planu": round((tok["koszt"] + (chmura["okno"] if chmura else 0)) * skala, 2),
+            "wiad_na_10proc_planu": round(metryki["wiad_wlasciciela"] * skala, 1),
+            "pr_scalone_na_10proc_planu": round(metryki["pr_scalone"] * skala, 1) if gh else None})
+    else:
+        metryki.update({"koszt_na_10proc_planu": None, "wiad_na_10proc_planu": None, "pr_scalone_na_10proc_planu": None})
     (wyjscie / "metryki.json").write_text(json.dumps(metryki, ensure_ascii=False, indent=2), encoding="utf-8")
 
     zakres = t("zakres_projekt", repo=repo_projektu) if repo_projektu else t("zakres_konto")
@@ -1221,6 +1334,19 @@ def main(argv=None):
                  f"{c['blokady_klasyfikatora'] + c['blokady_u_podagentow']} | {c['bledy_narzedzi']} | {c['kompakty']} | {c['podagenci']} | ${koszt:.2f} |")
     l += ["", t("pods_pory"), ""] + [f"- {k[2]}: {v}" for k, v in sorted(pory.items())]
     l += raport_tokenow(tok, sesje)
+    l += ["", t("chmura_tytul"), ""]
+    if chmura:
+        l += [t("chmura_opis", koszt=chmura["okno"], n=len(chmura["sesje"]), nowe=chmura["nowe"],
+                plik=tokeny.PLIK_CHMURY.as_posix()), "", t("chmura_kolumny"), "|---|---|---|---|---|"]
+        l += [f"| `{w['id'][-12:]}` | {w['tytul'] or '—'} | ${w['zycie']:.2f} | ${w['okno']:.2f} | "
+              f"{t('chmura_pierwszy') if w['pierwszy'] else ''} |" for w in sorted(chmura["sesje"], key=lambda w: -w["okno"])]
+    else:
+        l.append(chmura_uwaga or t("chmura_brak"))
+    l += ["", t("plan_tytul"), ""]
+    l.append(t("plan_opis", plan=a.plan_uzyty, koszt=metryki["koszt_na_10proc_planu"],
+               wiad=metryki["wiad_na_10proc_planu"], pr=metryki["pr_scalone_na_10proc_planu"] if gh else "—")
+             if a.plan_uzyty else t("plan_brak"))
+    l += raport_narzedzi(narzedzia)
     l += raport_trendu(trend_wiersze, trend_uwaga, zdalne_uwagi)
     porown = efektywnosc.porownanie(katalog / "metryki.csv", metryki) if katalog is not None else ([], [])
     l += efektywnosc.raport(porown, ef["koszty"], ef["rundy"], od, do, ef["powroty"], ef["uwagi"],

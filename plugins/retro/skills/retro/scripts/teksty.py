@@ -196,6 +196,67 @@ TEKSTY = {
     "przyczyna_sesja": {"pl": "inna sesja", "en": "another session"},
     "przyczyna_inne": {"pl": "inne (np. wynik narzędzia po długim czekaniu)",
                        "en": "other (e.g. a tool result after a long wait)"},
+
+    # sygnaly.py: odrzucone i nieudane wywołania narzędzi (od 0.5.0)
+    "narz_tytul": {"pl": "## Wywołania narzędzi: odrzucone i nieudane", "en": "## Tool calls: refused and failed"},
+    "narz_opis": {
+        "pl": "Wywołania narzędzi w oknie: sesja główna {sesja}, podagenci {podagenci}; odrzucone {odrz} ({na100} na 100). "
+              "Odrzucone = środowisko zatrzymało wywołanie, zanim ruszyło: każde to tura z pełnym kontekstem na nic, więc "
+              "usuń przyczynę (zezwól na bezpieczne polecenia tylko do odczytu, rozbij polecenia złożone, czekaj w tle). "
+              "Nieudane = narzędzie ruszyło i zwróciło błąd (testy padają celowo, to nie strata sama w sobie).",
+        "en": "Tool calls in the window: main session {sesja}, subagents {podagenci}; refused {odrz} ({na100} per 100). "
+              "Refused = the harness stopped the call before it ran: each one is a full-context turn for nothing, so fix "
+              "the cause (allow safe read-only commands, split compound commands, wait in the background). Failed = "
+              "the tool ran and returned an error (tests fail on purpose; not waste by itself)."},
+    "narz_odrzucenie": {"pl": "Odrzucone wg przyczyny:", "en": "Refused by cause:"},
+    "narz_niepowodzenie": {"pl": "Nieudane wg przyczyny:", "en": "Failed by cause:"},
+    "narz_kolumny": {"pl": "| przyczyna | sesja główna | podagenci | razem |", "en": "| cause | main session | subagents | total |"},
+    "narz_sygnal": {
+        "pl": "**Sygnał:** więcej niż {prog} odrzucenia na 100 wywołań narzędzi; usuń najczęstszą przyczynę mechanizmem "
+              "(uprawnienie, skrypt zamiast polecenia złożonego), nie regułą w tekście.",
+        "en": "**Signal:** more than {prog} refusals per 100 tool calls; remove the most frequent cause with a mechanism "
+              "(a permission, a script instead of a compound command), not a text rule."},
+    "przyczyna_narz_worktree": {"pl": "strażnik worktree / polecenie zbyt złożone", "en": "worktree guard / command too complex"},
+    "przyczyna_narz_klasyfikator": {"pl": "klasyfikator trybu auto", "en": "auto mode classifier"},
+    "przyczyna_narz_odmowa_wlasciciela": {"pl": "odmowa właściciela", "en": "user rejected"},
+    "przyczyna_narz_sleep": {"pl": "zablokowane czekanie (sleep)", "en": "blocked foreground sleep"},
+    "przyczyna_narz_hook": {"pl": "hook", "en": "hook"},
+    "przyczyna_narz_uprawnienia": {"pl": "reguła uprawnień", "en": "permission rule"},
+    "przyczyna_narz_zablokowane_inne": {"pl": "zablokowane (inne)", "en": "blocked (other)"},
+    "przyczyna_narz_edit_bez_read": {"pl": "Edit/Write bez wcześniejszego Read", "en": "Edit/Write without a prior Read"},
+    "przyczyna_narz_kod_wyjscia": {"pl": "kod wyjścia polecenia", "en": "command exit code"},
+    "przyczyna_narz_blad_wejscia": {"pl": "błąd parametrów narzędzia", "en": "tool input error"},
+    "przyczyna_narz_brak_pliku": {"pl": "brak pliku", "en": "file not found"},
+    "przyczyna_narz_inny_blad": {"pl": "inny błąd", "en": "other error"},
+
+    # sygnaly.py: sesje w chmurze i udział w planie (od 0.5.0)
+    "chmura_tytul": {"pl": "## Sesje w chmurze (claude.ai/code)", "en": "## Cloud sessions (claude.ai/code)"},
+    "chmura_brak": {
+        "pl": "Nie mierzone: brak `--chmura PLIK` (koszt sesji w chmurze podaje `get_session` narzędzi Remote MCP; "
+              "`SKILL.md`, krok 1).",
+        "en": "Not measured: no `--chmura FILE` (the Remote MCP `get_session` tool gives the cloud session cost; "
+              "`SKILL.md`, step 1)."},
+    "chmura_blad": {"pl": "Nie mierzone: nie da się odczytać `{plik}` ({blad}).",
+                    "en": "Not measured: cannot read `{plik}` ({blad})."},
+    "chmura_opis": {
+        "pl": "Koszt okna: ${koszt:.2f} z {n} sesji. `get_session` podaje koszt całego życia sesji; koszt okna to różnica "
+              "wobec ostatniego odczytu sprzed początku okna (archiwum `{plik}`). Sesja bez wcześniejszego odczytu liczy się "
+              "w całości („pierwszy odczyt”, {nowe} sesji), więc może zawierać koszt sprzed okna.",
+        "en": "Window cost: ${koszt:.2f} from {n} sessions. `get_session` gives a session's lifetime cost; the window cost "
+              "is the difference against the last reading taken before the window start (archive `{plik}`). A session "
+              "without an earlier reading counts whole (\"first reading\", {nowe} sessions), so it may include cost from "
+              "before the window."},
+    "chmura_kolumny": {"pl": "| sesja | tytuł | koszt całego życia | koszt okna | |",
+                       "en": "| session | title | lifetime cost | window cost | |"},
+    "chmura_pierwszy": {"pl": "pierwszy odczyt", "en": "first reading"},
+    "plan_tytul": {"pl": "## Udział w planie", "en": "## Share of the plan"},
+    "plan_brak": {"pl": "Nie podano (`--plan-uzyty PROC`): sumy okien różnej długości nie są porównywalne, tylko wskaźniki.",
+                  "en": "Not given (`--plan-uzyty PCT`): totals of windows of different lengths do not compare, only rates."},
+    "plan_opis": {
+        "pl": "Okno zużyło {plan:g}% planu. Na każde 10% planu: koszt w cenach API ${koszt:.2f} (lokalnie i w chmurze), "
+              "{wiad} wiadomości właściciela, {pr} scalonych PR. Te liczby porównuj między retro zamiast sum.",
+        "en": "The window used {plan:g}% of the plan. Per 10% of the plan: API-price cost ${koszt:.2f} (local and cloud), "
+              "{wiad} owner messages, {pr} merged PRs. Compare these between retros instead of totals."},
     "tok_nieznane": {
         "pl": "**Uwaga:** modeli bez ceny w cenniku nie wliczono do kosztu: {lista}. Dopisz je do pola `cennik` "
               "w konfiguracji albo do `references/cennik.json` w repo pluginu.",

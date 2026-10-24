@@ -281,6 +281,34 @@ def aktualizuj_archiwum(plik: pathlib.Path, sesje: list) -> dict:
     return arch
 
 
+PLIK_CHMURY = pathlib.Path("dane") / "chmura-archiwum.json"
+
+
+def chmura_okna(lista: list, plik: pathlib.Path, od, teraz=None) -> dict:
+    """Koszt okna sesji w chmurze z kosztów całego życia (`get_session`: `[{id, title, cost_usd}]`, jak
+    w claude-usage-report). Archiwum trzyma wszystkie odczyty każdej sesji; koszt okna = koszt teraz minus ostatni
+    odczyt sprzed `od`. Bez takiego odczytu sesja liczy się w całości i jest oznaczona `pierwszy`. Ponowne
+    uruchomienie dla tego samego okna daje ten sam wynik."""
+    teraz = (teraz or dt.datetime.now().astimezone()).isoformat(timespec="seconds")
+    try:
+        arch = json.loads(plik.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        arch = {}
+    wiersze = []
+    for s in lista:
+        sid, koszt = str(s.get("id") or "?"), float(s.get("cost_usd") or 0)
+        odczyty = arch.setdefault(sid, {"tytul": "", "odczyty": []})
+        odczyty["tytul"] = str(s.get("title") or s.get("tytul") or odczyty["tytul"])[:60]
+        przed = [v for c, v in odczyty["odczyty"] if (czas_lokalny(c) or od) < od]
+        wiersze.append({"id": sid, "tytul": odczyty["tytul"], "zycie": round(koszt, 2),
+                        "okno": round(koszt - przed[-1] if przed else koszt, 2), "pierwszy": not przed})
+        odczyty["odczyty"].append([teraz, round(koszt, 4)])
+    plik.parent.mkdir(parents=True, exist_ok=True)
+    plik.write_text(json.dumps(arch, ensure_ascii=False, indent=1), encoding="utf-8")
+    return {"sesje": wiersze, "okno": round(sum(w["okno"] for w in wiersze), 2),
+            "nowe": sum(w["pierwszy"] for w in wiersze)}
+
+
 # ---------------------------------------------------------------- trend tygodniowy
 
 def poniedzialek(d) -> dt.date:
