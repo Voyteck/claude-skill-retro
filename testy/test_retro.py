@@ -1483,5 +1483,288 @@ class Test050(Srodowisko):
         self.assertIn("Nie podano (`--plan-uzyty PROC`)", p)
 
 
+def agent_md(model="opus", effort="high", opis="Implementuje PR.", tresc="Pisz testy.") -> str:
+    return f"---\nname: programista\ndescription: {opis}\nmodel: {model}\neffort: {effort}\n---\n{tresc}\n"
+
+
+class Test060Agenci(Srodowisko):
+    """0.6.0: migawka konfiguracji agentów, zmiany między retro i ich efekt, przydział zadań."""
+
+    def setUp(self):
+        super().setUp()
+        import teksty
+        teksty.ustaw("pl")
+        self.katalog_ag = self.repo / ".claude" / "agents"
+        self.katalog_ag.mkdir(parents=True)
+
+    def definicje(self):
+        import agenci
+        return agenci.wczytaj_definicje([("repo", self.katalog_ag)])
+
+    def test_naglowek_i_opis_wieloliniowy(self):
+        import agenci
+        pola, tresc = agenci.frontmatter("---\nname: x\ndescription: >\n  Pierwsza linia\n  druga.\nmodel: 'sonnet'\n---\nciało\n")
+        self.assertEqual(pola, {"name": "x", "description": "Pierwsza linia druga.", "model": "sonnet"})
+        self.assertEqual(tresc.strip(), "ciało")
+        self.assertEqual(agenci.frontmatter("# bez\n"), (None, "# bez\n"))
+        (self.katalog_ag / "programista.md").write_text(agent_md(), encoding="utf-8")
+        d = self.definicje()[0]
+        self.assertEqual((d["agent"], d["model"], d["effort"], d["opis"]), ("programista", "opus", "high", "Implementuje PR."))
+        self.assertRegex(d["zmieniony"], r"\d{4}-\d{2}-\d{2}")
+
+    def test_migawka_i_zmiany(self):
+        import agenci
+        plik_ag, csv_ = self.katalog_ag / "programista.md", self.tmp / "agenci.csv"
+        plik_ag.write_text(agent_md(), encoding="utf-8")
+        przed = self.definicje()
+        self.assertEqual(agenci.zmiany([], przed), [])                       # bez historii: nic do porównania
+        plik_ag.write_text(agent_md(model="sonnet"), encoding="utf-8")         # zmiana w R01
+        w = agenci.zapisz_migawke(csv_, "R01", "2026-10-01", self.definicje(), przed)
+        self.assertEqual((w["agenci"], w["stan_przed_retro"]), (1, 1))         # pierwsza migawka: też stan sprzed retro
+        wiersze = agenci.wczytaj_migawki(csv_)
+        self.assertEqual([r["retro"] for r in wiersze], ["R01-start", "R01"])
+        z = agenci.zmiany(wiersze, self.definicje())
+        self.assertEqual([(x["kiedy"], x["co"]) for x in z], [("R01", ["model opus → sonnet"])])
+        plik_ag.write_text(agent_md(model="sonnet", effort="medium", opis="Tylko małe PR."), encoding="utf-8")
+        z = agenci.zmiany(wiersze, self.definicje())                         # zmiana ręczna po retro
+        self.assertEqual(z[-1]["co"], ["effort high → medium", "opis"])
+        self.assertTrue(z[-1]["biezaca"])
+        self.assertEqual(z[-1]["kiedy"], "od ostatniego retro")
+        agenci.zapisz_migawke(csv_, "R02", "2026-10-03", self.definicje(), self.definicje())
+        agenci.zapisz_migawke(csv_, "R02", "2026-10-03", self.definicje(), self.definicje())   # ponownie: bez duplikatów
+        wiersze = agenci.wczytaj_migawki(csv_)
+        self.assertEqual([r["retro"] for r in wiersze], ["R01-start", "R01", "R02-start", "R02"])
+        z = agenci.zmiany(wiersze, self.definicje())
+        self.assertEqual([x["kiedy"] for x in z], ["R01", "poza retro (przed R02)"])
+        self.assertFalse(any(x.get("biezaca") for x in z))
+        plik_ag.unlink()
+        (self.katalog_ag / "przeglad.md").write_text("---\nname: przeglad\nmodel: haiku\n---\n", encoding="utf-8")
+        z = agenci.zmiany(wiersze, self.definicje())
+        self.assertEqual(sorted(x["co"][0] for x in z if x.get("biezaca")), ["nowy agent", "usunięty"])
+
+    def test_efekt_zmian_i_przydzial(self):
+        import agenci
+        import collections
+        zmiana = {"agent": "programista", "zrodlo": "repo", "kiedy": "R01", "data": dt.date(2026, 10, 10),
+                  "co": ["model opus → sonnet"]}
+
+        def pr(n, dzien, rundy, koszt, linie=40, typ="programista"):
+            return {"pr": n, "rundy": rundy, "linie": linie, "scalony": dt.datetime(2026, 10, dzien + 1).astimezone(),
+                    "pr_koszt": collections.Counter({"implementacja": koszt}), "h": 1, "commity": 1,
+                    "pr_impl": (typ, "claude-opus-5-5" if dzien < 10 else "claude-sonnet-5-5", "high", ""),
+                    "pr_typy": {typ: [koszt, f"2026-10-{dzien:02d}T12:00:00"]}}
+        polaczone = [pr(1, 5, 1, 4.0), pr(2, 6, 0, 2.0), pr(3, 10, 0, 9.0), pr(4, 12, 0, 1.0, 400),
+                     pr(5, 13, 0, 1.0, typ="plugin:programista"), pr(6, 13, 0, 3.0, typ="inny"),
+                     dict(pr(7, 14, 0, 0), pr_koszt=None, pr_impl=None, pr_typy=None)]
+        (z, przed, po), = agenci.efekt_zmian([zmiana], polaczone, dt.date(2026, 9, 1))
+        self.assertEqual((przed["pr"], przed["z_poprawka"], przed["agent"], przed["rozmiary"]), (2, 50, 3.0, "S2"))
+        self.assertEqual((po["pr"], po["agent"], po["rozmiary"]), (2, 1.0, "S1 L1"))   # dzień zmiany pominięty
+        self.assertEqual(agenci.efekt_zmian([zmiana], polaczone, dt.date(2026, 10, 11)), [])
+        grupy = agenci.przydzial_pr(polaczone)
+        self.assertEqual(len(grupy[("S", "sesja główna")]), 1)
+        self.assertEqual(len(grupy[("S", "programista · Opus · high")]), 2)
+        dane = {"agenci": {"a1": {"tokeny": {"eff": "medium"}}}, "zdarzenia": [
+            {"rodzaj": "start", "typ": "programista", "agent": "a1", "model": "claude-sonnet-5-5", "pr": [4],
+             "ts": ts()},
+            {"rodzaj": "start", "typ": "general-purpose", "model": "claude-opus-5-5", "pr": [], "ts": ts()},
+            {"rodzaj": "start", "typ": "programista", "model": "x", "ts": ts(dt.timedelta(days=-30))}]}
+        teraz = dt.datetime.now().astimezone()
+        s = agenci.starty([dane], teraz - dt.timedelta(days=1), teraz + dt.timedelta(days=1))
+        self.assertEqual((s["programista"]["starty"], s["programista"]["z_pr"]), (1, 1))
+        self.assertEqual(dict(s["programista"]["konf"]), {"Sonnet · medium": 1})
+        definicje = [{"agent": "programista", "zrodlo": "repo", "model": "sonnet", "effort": "", "opis": "x",
+                      "zmieniony": "2026-10-10"},
+                     {"agent": "architekt", "zrodlo": "repo", "model": "opus", "effort": "", "opis": "y",
+                      "zmieniony": ""}]
+        self.assertEqual(agenci.nieuzywani(definicje, s), ["architekt"])
+        import efektywnosc
+        l = "\n".join(agenci.raport(definicje, efektywnosc.wzorce_rol({}), [zmiana],
+                                    agenci.efekt_zmian([zmiana], polaczone, dt.date(2026, 9, 1)), grupy, s, True))
+        self.assertIn("| programista (repo) | R01 | 2026-10-10 | model opus → sonnet | 2* PR · 50% · $3.00 / $3.00 · S2 |", l)
+        self.assertIn("| general-purpose | inne podagenty | wbudowana | 1 | 0 | Opus 1 |", l)
+        self.assertIn("**Agenci bez startów w oknie:** `architekt`", l)
+        m = agenci.metryki_okna(definicje, [dict(zmiana, biezaca=True)], s, polaczone,
+                                dt.datetime(2026, 10, 1).astimezone(), dt.datetime(2026, 10, 30).astimezone())
+        self.assertEqual(m, {"agenci_zdefiniowani": 2, "agenci_nieuzywani": 1, "agenci_zmiany_od_retro": 1,
+                             "pr_bez_agenta_proc": 14.3})
+
+    def test_sygnaly_i_dopisz_metryki_zapisuja_migawke(self):
+        (self.katalog_ag / "programista.md").write_text(agent_md(), encoding="utf-8")
+        self.zaloz_konto()
+        ws = self.tmp / "ws"
+        wyjscie = self.tmp / "wyn"
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--bez-gh", "--wyjscie", str(wyjscie))
+        p = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("Brak `agenci.csv`: pierwsza migawka", p)
+        self.assertIn("| programista | implementacja | opus | high | repo | 0 |", p)
+        self.assertIn("## Pliki kontekstu (caveman)", p)
+        self.assertTrue((wyjscie / "agenci.json").is_file())
+        (self.katalog_ag / "programista.md").write_text(agent_md(effort="medium"), encoding="utf-8")   # zmiana w retro
+        wynik = json.loads(self.uruchom("dopisz_metryki.py", "--retro", "R01", "--zobowiazania", "1", "--katalog",
+                                        str(ws), "--metryki", str(wyjscie / "metryki.json")))
+        self.assertEqual(wynik["agenci"]["stan_przed_retro"], 1)
+        import csv
+        with (ws / "agenci.csv").open(encoding="utf-8", newline="") as f:
+            self.assertEqual([(w["retro"], w["effort"]) for w in csv.DictReader(f)],
+                             [("R01-start", "high"), ("R01", "medium")])
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--bez-gh", "--wyjscie", str(wyjscie))
+        p = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("| programista (repo) | R01 |", p)
+        self.assertIn("effort high → medium", p)
+        m = json.loads((wyjscie / "metryki.json").read_text(encoding="utf-8"))
+        self.assertEqual((m["agenci_zdefiniowani"], m["agenci_nieuzywani"], m["agenci_zmiany_od_retro"]), (1, 1, 0))
+        self.assertIsNone(m["pr_bez_agenta_proc"])                          # bez GitHuba
+
+
+ORYGINAL_MD = """---
+name: x
+description: Opis agenta.
+---
+# Zasady
+
+Zawsze należy pamiętać o tym, że testy uruchamiamy przed każdym commitem. NIGDY nie pushuj na `main`.
+Szczegóły w docs/claude/testy.md oraz https://example.com/a?b=1 i Z-012 od 2026-10-01 (limit 40 linii).
+
+1. Pierwszy krok
+2. Drugi krok
+
+| a | b |
+|---|---|
+| 1 | 2 |
+
+```bash
+pytest -q
+```
+"""
+SKOMPRESOWANY_MD = """---
+name: x
+description: Opis agenta.
+---
+# Zasady
+
+Testy przed każdym commitem. NIGDY nie pushuj na `main`.
+Szczegóły: docs/claude/testy.md, https://example.com/a?b=1, Z-012 od 2026-10-01 (limit 40 linii).
+
+- Pierwszy krok
+- Drugi krok
+
+| a | b |
+|---|---|
+| 1 | 2 |
+
+```bash
+pytest -q
+```
+"""
+
+
+class Test060Caveman(Srodowisko):
+    """0.6.0: pliki kontekstu w stylu caveman: lista, kontrola, kopia, rejestr, przywracanie."""
+
+    def setUp(self):
+        super().setUp()
+        import teksty
+        teksty.ustaw("pl")
+
+    def test_kontrola_przepuszcza_dobra_kompresje(self):
+        import caveman
+        w = caveman.sprawdz_tekst(ORYGINAL_MD, SKOMPRESOWANY_MD)
+        self.assertEqual(w, {"bledy": [], "ostrzezenia": []})
+
+    def test_kontrola_wylapuje_zgubione(self):
+        import caveman
+        przypadki = [
+            (SKOMPRESOWANY_MD.replace("description: Opis agenta.", "description: Opis."), "nagłówek YAML"),
+            (SKOMPRESOWANY_MD.replace("pytest -q", "pytest"), "bloki kodu"),
+            (SKOMPRESOWANY_MD.replace("`main`", "main"), "kod w linii: `main`"),
+            (SKOMPRESOWANY_MD.replace(", https://example.com/a?b=1", ""), "adresy"),
+            (SKOMPRESOWANY_MD.replace("# Zasady", "# Reguły"), "nagłówki"),
+            (SKOMPRESOWANY_MD.replace("| 1 | 2 |\n", ""), "wiersze tabel"),
+            (SKOMPRESOWANY_MD.replace("limit 40 linii", "limit linii"), "liczby: 40"),
+            (SKOMPRESOWANY_MD.replace("Z-012 ", ""), "identyfikatory: Z-012"),
+            (SKOMPRESOWANY_MD.replace("docs/claude/testy.md, ", ""), "ścieżki: docs/claude/testy.md"),
+            (SKOMPRESOWANY_MD.replace("NIGDY nie", "nie"), "wielkimi literami: NIGDY"),
+        ]
+        for nowy, fragment in przypadki:
+            bledy = caveman.sprawdz_tekst(ORYGINAL_MD, nowy)["bledy"]
+            self.assertTrue(any(fragment in b for b in bledy), (fragment, bledy))
+        o = caveman.sprawdz_tekst(ORYGINAL_MD, SKOMPRESOWANY_MD.replace("NIGDY nie pushuj", "NIGDY pushuj"))
+        self.assertTrue(any("mniej przeczeń" in x for x in o["ostrzezenia"]))
+        przeniesione = SKOMPRESOWANY_MD.replace("Szczegóły: docs/claude/testy.md", "Szczegóły: `docs/claude/testy.md`")
+        self.assertEqual(caveman.sprawdz_tekst(ORYGINAL_MD, przeniesione)["bledy"], [])   # ścieżka w kodzie nie ginie
+
+    def test_kandydaci_bez_pluginow(self):
+        import caveman
+        claude = self.claude
+        (claude / "agents").mkdir(parents=True)
+        (claude / "agents" / "a.md").write_text("---\nname: a\n---\nx\n", encoding="utf-8")
+        (claude / "skills" / "moj").mkdir(parents=True)
+        (claude / "skills" / "moj" / "SKILL.md").write_text("x" * 400, encoding="utf-8")
+        (claude / "plugins" / "p" / "skills" / "s").mkdir(parents=True)
+        (claude / "plugins" / "p" / "skills" / "s" / "SKILL.md").write_text("plugin", encoding="utf-8")
+        (claude / "CLAUDE.md").write_text("reguły\n", encoding="utf-8")
+        ws = self.tmp / "ws"
+        ws.mkdir()
+        (ws / "nauki.md").write_text("nauki\n", encoding="utf-8")
+        stary = os.environ.get("CLAUDE_CONFIG_DIR")
+        os.environ["CLAUDE_CONFIG_DIR"] = str(claude)
+        try:
+            regul = [("globalne", str(claude / "CLAUDE.md"), 1, None), ("repo", str(self.repo / "CLAUDE.md"), 2, None)]
+            pliki = caveman.pliki_kontekstu(regul, {"repo": str(self.repo)}, [claude / "projects" / "f-repo"], ws,
+                                            {"caveman_pomin": ["*/a.md"]})
+            rodzaje = sorted((r, p.name) for r, _, p in pliki)
+            self.assertEqual(rodzaje, [("nauki", "nauki.md"), ("pamiec", "feedback-x.md"), ("reguly", "CLAUDE.md"),
+                                       ("reguly", "CLAUDE.md"), ("skill", "SKILL.md")])
+            opisane = caveman.opisz(pliki, ws, {})
+            self.assertEqual({o["stan"] for o in opisane}, {"nieskompresowany"})
+            m = caveman.metryki(opisane, {})
+            self.assertEqual((m["pliki_kontekstu"], m["caveman_do_kompresji"]), (5, 5))
+            self.assertIsNone(caveman.metryki(opisane, {"caveman": "wyl"})["caveman_do_kompresji"])
+        finally:
+            if stary is None:
+                os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            else:
+                os.environ["CLAUDE_CONFIG_DIR"] = stary
+
+    def test_kopia_sprawdz_przywroc(self):
+        self.zaloz_konto()
+        ws = self.tmp / "ws"
+        plik = self.repo / "CLAUDE.md"
+        plik.write_text(ORYGINAL_MD, encoding="utf-8")
+        wyjscie = ws / "dane" / "sygnaly-x"
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--bez-gh", "--wyjscie", str(wyjscie))
+        lista = json.loads(self.uruchom("caveman.py", "lista", "--katalog", str(ws)))
+        self.assertIn(str(plik.as_posix()).split("/")[-1], [o["plik"].split("/")[-1] for o in lista["pliki"]])
+        self.assertEqual(lista["poziom"], "standard")
+        kopia = json.loads(self.uruchom("caveman.py", "kopia", "--retro", "R01", "--katalog", str(ws), str(plik)))
+        self.assertTrue(pathlib.Path(kopia[0]["kopia"]).is_file())
+        plik.write_text(SKOMPRESOWANY_MD.replace("Z-012 ", ""), encoding="utf-8")   # zła kompresja: kod 1
+        r = subprocess.run([sys.executable, str(SKRYPTY / "caveman.py"), "sprawdz", "--retro", "R01", "--katalog",
+                            str(ws), str(plik)], env=self.env, capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(r.returncode, 1)
+        self.assertFalse(json.loads(r.stdout)[0]["ok"])
+        plik.write_text(SKOMPRESOWANY_MD, encoding="utf-8")
+        w = json.loads(self.uruchom("caveman.py", "sprawdz", "--retro", "R01", "--katalog", str(ws), str(plik)))[0]
+        self.assertTrue(w["ok"])
+        self.assertGreater(w["oszczednosc_proc"], 10)
+        self.uruchom("caveman.py", "kopia", "--retro", "R01", "--katalog", str(ws), str(plik))   # kopia już jest
+        import csv
+        with (ws / "caveman.csv").open(encoding="utf-8", newline="") as f:
+            wiersze = list(csv.DictReader(f))
+        self.assertEqual([(x["retro"], x["poziom"]) for x in wiersze], [("R01", "standard")])
+        lista = json.loads(self.uruchom("caveman.py", "lista", "--katalog", str(ws)))
+        self.assertNotIn("CLAUDE.md", [o["plik"].split("/")[-1] for o in lista["pliki"] if "repo" in o["plik"]])
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--bez-gh", "--wyjscie", str(wyjscie))
+        m = json.loads((wyjscie / "metryki.json").read_text(encoding="utf-8"))
+        self.assertEqual(m["caveman_do_kompresji"], m["pliki_kontekstu"] - 1)
+        plik.write_text(SKOMPRESOWANY_MD + "nowa reguła\n", encoding="utf-8")       # zmiana po kompresji
+        lista = json.loads(self.uruchom("caveman.py", "lista", "--katalog", str(ws)))
+        self.assertIn("zmieniony", [o["stan"] for o in lista["pliki"]])
+        self.uruchom("caveman.py", "przywroc", "--retro", "R01", "--katalog", str(ws), str(plik))
+        self.assertEqual(plik.read_text(encoding="utf-8"), ORYGINAL_MD)
+        self.assertEqual((ws / "caveman.csv").read_text(encoding="utf-8").strip(), ",".join(
+            ["retro", "data", "plik", "poziom", "tokeny_przed", "tokeny_po", "sha_po"]))
+
+
 if __name__ == "__main__":
     unittest.main()

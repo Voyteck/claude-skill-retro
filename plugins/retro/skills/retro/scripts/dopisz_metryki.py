@@ -6,6 +6,9 @@ Użycie:
 --metryki: domyślnie najnowszy `dane/sygnaly-*/metryki.json` w katalogu roboczym. Kolumny, których brakuje
 w nagłówku starszego `metryki.csv` (nowe metryki pluginu), są dopisywane na końcu; starsze wiersze mają je puste.
 Wiersz z tym samym `retro` jest zastępowany, więc ponowne uruchomienie niczego nie dubluje.
+
+Od 0.6.0 dopisuje też migawkę konfiguracji agentów do `agenci.csv` (stan po zmianach retro, z katalogów agentów
+zapisanych przez `sygnaly.py` w `agenci.json` obok `metryki.json`); `--bez-agentow` to wyłącza.
 """
 import argparse
 import csv
@@ -16,6 +19,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import wspolne  # noqa: E402
+import agenci  # noqa: E402
 import teksty  # noqa: E402
 from teksty import t  # noqa: E402
 
@@ -63,6 +67,7 @@ def main(argv=None):
     ap.add_argument("--metryki", help="metryki.json; domyślnie najnowszy w dane/")
     ap.add_argument("--katalog", help="katalog roboczy retro; domyślnie wykryty")
     ap.add_argument("--data", help="data retro (RRRR-MM-DD); domyślnie dziś")
+    ap.add_argument("--bez-agentow", action="store_true", help="bez migawki konfiguracji agentów (agenci.csv)")
     a = ap.parse_args(argv)
     katalog = pathlib.Path(a.katalog).expanduser() if a.katalog else wspolne.znajdz_katalog_roboczy()[0]
     if katalog is None:
@@ -80,6 +85,12 @@ def main(argv=None):
               "zobowiazania_aktywne": a.zobowiazania}
     wynik = dopisz(katalog / "metryki.csv", wiersz)
     wynik["metryki"] = str(plik)
+    plik_agentow = plik.parent / "agenci.json"
+    if not a.bez_agentow and plik_agentow.is_file():
+        przed = json.loads(plik_agentow.read_text(encoding="utf-8"))
+        po = agenci.wczytaj_definicje([(z, pathlib.Path(k)) for z, k in przed.get("katalogi") or []])
+        wynik["agenci"] = agenci.zapisz_migawke(katalog / agenci.PLIK_MIGAWKI, a.retro, wiersz["data"], po,
+                                                przed.get("definicje") or [])
     print(json.dumps(wynik, ensure_ascii=False, indent=2))
 
 

@@ -34,7 +34,7 @@ MAX_STRON_GH = 10
 # Porównanie z poprzednimi retro (kolumny `metryki.csv`); dla każdego wskaźnika więcej = gorzej.
 POROWNANIE = ["koszt_na_wiadomosc_usd", "kontekst_mediana", "kontekst_ponad_200k_proc", "kontekst_startowy_mediana",
               "podagenci_opus_koszt_proc", "wybudzenia_koszt_usd", "pr_z_poprawka_proc", "rundy_na_pr",
-              "powroty_przeglad", "powroty_ci", "koszt_na_pr_usd"]
+              "powroty_przeglad", "powroty_ci", "koszt_na_pr_usd", "pliki_kontekstu_tokeny"]
 POPRZEDNIE_RETRO = 3
 # Rozmiar PR (dodane + usunięte linie): S do pierwszego progu, M do drugiego, L powyżej.
 PROGI_ROZMIARU = [50, 300]
@@ -157,9 +157,10 @@ def koszt_agenta(a: dict, cennik: dict) -> float:
 
 def koszty_pr(zrodla: list, wzorce: list, cennik: dict) -> dict:
     """{(repo albo None, nr PR): {"koszt": Counter(rola → USD), "impl": (typ, model, poziom, czas) pierwszego
-    implementatora albo None}} ze zdarzeń agentów. `zrodla`: [(dane `zdarzenia_agentow`, {sesja: repo})].
-    Koszt agenta, który pracował nad kilkoma PR, dzieli się po równo."""
-    wynik = collections.defaultdict(lambda: {"koszt": collections.Counter(), "impl": None})
+    implementatora albo None, "typy": {typ agenta: [USD, czas pierwszej pracy]}}} ze zdarzeń agentów.
+    `zrodla`: [(dane `zdarzenia_agentow`, {sesja: repo})]. Koszt agenta, który pracował nad kilkoma PR, dzieli się
+    po równo."""
+    wynik = collections.defaultdict(lambda: {"koszt": collections.Counter(), "impl": None, "typy": {}})
     for dane, repo_sesji in zrodla:
         agenci = dane.get("agenci") or {}
         prs = collections.defaultdict(set)
@@ -177,6 +178,10 @@ def koszty_pr(zrodla: list, wzorce: list, cennik: dict) -> dict:
             for pr in prs[aid]:
                 rek = wynik[(repo_sesji.get(a.get("s")), pr)]
                 rek["koszt"][r] += k
+                typ = rek["typy"].setdefault(a.get("typ") or "?", [0.0, a.get("ts") or ""])
+                typ[0] += k
+                if a.get("ts") and (not typ[1] or a["ts"] < typ[1]):
+                    typ[1] = a["ts"]
                 if r == "implementacja" and (rek["impl"] is None or (a.get("ts") or "") < rek["impl"][3]):
                     rek["impl"] = (a.get("typ"), a.get("model"), poziom, a.get("ts") or "")
     return dict(wynik)
@@ -194,12 +199,17 @@ def polacz_pr(rundy: list, koszty: dict) -> list:
     for r in rundy:
         reki = ([koszty[(r["repo"], r["pr"])]] if (r["repo"], r["pr"]) in koszty else []) \
             + (bez_repo.get(r["pr"], []) if numery[r["pr"]] == 1 else [])
-        koszt, impl = collections.Counter(), None
+        koszt, impl, typy = collections.Counter(), None, {}
         for rek in reki:
             koszt.update(rek["koszt"])
+            for typ, (k, ts) in (rek.get("typy") or {}).items():
+                stary = typy.setdefault(typ, [0.0, ""])
+                stary[0] += k
+                if ts and (not stary[1] or ts < stary[1]):
+                    stary[1] = ts
             if rek["impl"] and (impl is None or rek["impl"][3] < impl[3]):
                 impl = rek["impl"]
-        wynik.append(dict(r, pr_koszt=koszt if reki else None, pr_impl=impl))
+        wynik.append(dict(r, pr_koszt=koszt if reki else None, pr_impl=impl, pr_typy=typy if reki else None))
     return wynik
 
 
@@ -229,25 +239,9 @@ def tabela_konfiguracji(polaczone: list, progi=None) -> dict:
 
 
 def konfiguracja_agentow(katalogi: list) -> list:
-    """[(nazwa, model, poziom, źródło)] z nagłówków `.claude/agents/*.md` (pola `name`, `model`, `effort`)."""
-    wynik = []
-    for zrodlo, katalog in katalogi:
-        for plik in sorted(pathlib.Path(katalog).glob("*.md")):
-            try:
-                linie = plik.read_text(encoding="utf-8", errors="replace").splitlines()
-            except OSError:
-                continue
-            if not linie or linie[0].strip() != "---":
-                continue
-            pola = {}
-            for linia in linie[1:]:
-                if linia.strip() == "---":
-                    break
-                m = re.match(r"(name|model|effort)\s*:\s*(.+)", linia)
-                if m:
-                    pola[m.group(1)] = m.group(2).strip().strip("'\"")
-            wynik.append((pola.get("name") or plik.stem, pola.get("model") or "inherit", pola.get("effort"), zrodlo))
-    return wynik
+    """[(nazwa, model, poziom, źródło)] z nagłówków `.claude/agents/*.md` (szczegóły: `agenci.wczytaj_definicje`)."""
+    import agenci
+    return [(d["agent"], d["model"], d["effort"] or None, d["zrodlo"]) for d in agenci.wczytaj_definicje(katalogi)]
 
 
 # ---------------------------------------------------------------- rundy poprawek w scalonych PR

@@ -1,6 +1,6 @@
 ---
 name: retro
-description: Agile-style retrospective of how the user works with Claude Code (user + Claude + subagents), usually every 2 working days. Reviews commitments from previous retros (were they kept, were they worth it), gathers evidence from Claude Code transcripts, git and GitHub, assesses what worked and what did not (including on the user's side), proposes at most 5 changes for the user to decide and implements the accepted ones. On first use it sets up a working directory (whole account or one project) and asks for the language. Use when the user asks for a retro, retrospective, retrospektywa, lessons learned, a review of lessons, "what are we doing well and what badly" („co robimy dobrze, a co źle”), "are we sticking to our agreements" („czy trzymamy się ustaleń”), continuous improvement, or when a reminder about an overdue retro got the user's consent.
+description: Agile-style retrospective of how the user works with Claude Code (user + Claude + subagents), usually every 2 working days. Reviews commitments from previous retros (were they kept, were they worth it), gathers evidence from Claude Code transcripts, git and GitHub, assesses what worked and what did not (including on the user's side), proposes at most 5 changes for the user to decide and implements the accepted ones. Tracks agent configs (model, effort, description) and each change's effect; compresses context files caveman-style. On first use it sets up a working directory (whole account or one project) and asks for the language. Use when the user asks for a retro, retrospective, retrospektywa, lessons learned, a review of lessons, "what are we doing well and what badly" („co robimy dobrze, a co źle”), "are we sticking to our agreements" („czy trzymamy się ustaleń”), continuous improvement, agent tuning („dobór agentów”), caveman, or when a reminder about an overdue retro got the user's consent.
 ---
 
 # Retro
@@ -19,14 +19,17 @@ starts by reviewing what was agreed before.
   - **project** mode: one repo; directory `<repo>/.retro/`, committed with the project, shared by the team.
 
   Contents: `konfiguracja.json`, `retro/RNN-YYYY-MM-DD.md`, `zobowiazania.md` (register), `metryki.csv`,
-  `nauki.md` (account mode), `dane/` (transcript extracts, outside git). File names, configuration keys and CSV
+  `agenci.csv` (agent configuration after each retro), `caveman.csv` (compressed context files), `nauki.md` (account
+  mode), `dane/` (transcript extracts and compression backups, outside git). File names, configuration keys and CSV
   columns are Polish identifiers; glossary: `references/konfiguracja.md`.
 - Scripts: `wspolne.py` (state detection), `zaloz.py` (directory setup), `sygnaly.py` (evidence from the window),
   `tokeny.py` (price list, token archive and trend; used by `sygnaly.py`), `zbierz_liczby.py` (numbers from
   another machine's transcripts for the trend), `dopisz_metryki.py` (a `metryki.csv` row),
   `przypomnienie.py` (reminder hook), `teksty.py` (script messages per language and language-independent
-  recognition). Configuration fields: `references/konfiguracja.md`. Meaning and limits of
-  the metrics: `references/sygnaly.md`; prices for cost metrics: `references/cennik.json`.
+  recognition), `agenci.py` (agent definitions, snapshot `agenci.csv`, changes and their effect, task routing),
+  `caveman.py` (context files: list, backup, check, rollback). Configuration fields: `references/konfiguracja.md`.
+  Meaning and limits of the metrics: `references/sygnaly.md`; prices for cost metrics: `references/cennik.json`;
+  compressing context files: `references/caveman.md`.
 - Templates: `assets/<jezyk>/` (`pl`, `en`). For a language without its own templates use `assets/en/` and
   translate headings and labels while filling them in.
 
@@ -51,11 +54,14 @@ starts by reviewing what was agreed before.
    independent decision.** Put the proposal and any step to perform into the question itself, because the text
    above the widget is sometimes not visible.
 7. **The retro does not change product code** and does not run heavy tests. It changes rules (CLAUDE.md, memory,
-   register, `nauki.md`), and only after the user decides.
+   register, `nauki.md`), agent definitions (`.claude/agents/*.md`: `model`, `effort`, `description`, the prompt)
+   and the form of context files (caveman compression), and only after the user decides.
 8. **Language.** Everything meant for the user (chat, questions and options, the retro file, the register,
    rules, briefs for sessions) is in the language from `jezyk` in the configuration (`pl` when the field is
    missing), plain, without jargon where an ordinary word exists. These instructions are in English; that does
-   not change the output language.
+   not change the output language. Exception: text that goes into context files (CLAUDE.md, agents, memory,
+   `nauki.md`) is written in that language at the `caveman` level of the configuration (`references/caveman.md`);
+   the retro document and the register stay plain.
 
 ## Step 0. Detection and first run
 
@@ -112,7 +118,7 @@ Before running it, gather two optional inputs the script cannot see (both came f
   between windows of different lengths. "I don't know" = leave it out.
 
 Output in `<working dir>/dane/sygnaly-<from>_<to>/`: `podsumowanie.md`, `metryki.json`, `<project>.md`
-(timeline). Reports are in the configured language (English for languages other than `pl`). Read the summary and
+(timeline), `agenci.json` (agent definitions at the retro's start), `pliki-kontekstu.json` (context files). Reports are in the configured language (English for languages other than `pl`). Read the summary and
 the metrics, compare with `metryki.csv`. Answer classes and the limits of the numbers: `references/sygnaly.md`.
 The heuristic correction marker (`[C?]`, in Polish reports `[K?]`) is a hint, not evidence.
 
@@ -170,6 +176,33 @@ for the next retros. A round is not always a return from the tester (rebases, co
 reviewer under "other subagents", propose adding its type there. Rules the user accepts become recommendations in
 section 8 like any other.
 
+The retro manages the agent definitions between retros (since 0.6.0). Three more summary sections serve it:
+
+- **Current agent configuration** with runs in the window, the date of the last change and the `description`.
+- **Agent configuration changes and their effect** („Zmiany konfiguracji agentów i ich efekt”): from `agenci.csv`
+  (written by `dopisz_metryki.py` at the end of each retro: the state after the retro's changes, plus the state at
+  its start when that differs) and the current files. Each change has the PRs before and after it: count, % with
+  a fix, the agent's cost and the total cost per PR, the size mix. This is the evidence for reviewing commitments of
+  kind "agent configuration" in step 3. A change "since the last retro" was made outside the retro: ask the user
+  whether it stays and, if so, register it as a commitment with a baseline.
+- **Task routing** („Przydział zadań”): who implemented merged PRs of each size (agent · model · effort or the main
+  session), runs by subagent type (custom, built-in, not here), agents without runs. The `description` decides which
+  tasks an agent gets. Propose a description change only with evidence of misrouting (size-S PRs at an expensive
+  agent, implementation in the main session although an agent exists for it, `general-purpose` doing a custom
+  agent's role, an agent never started). A description change is an agent change like a model change: the same
+  measure, and the same limits.
+
+Limits for agent changes, so the effect can be measured: **one change per agent per retro** (model, effort,
+description or prompt, not two at once); when several agents share a role, change one of them per retro. Every accepted change becomes a commitment of kind "agent configuration" (format in `zobowiazania.md`)
+with a **baseline** (PRs, % with a fix, cost per PR, size, from which retro) and a **rollback condition** (e.g. "% with
+a fix grows by more than 10 points with ≥ 5 PRs after the change → back to the previous configuration").
+
+**Context files (caveman)** („Pliki kontekstu (caveman)”, section 2b of the retro): sizes of the files loaded into
+context (rules, agents, memory, `nauki.md`, custom skills and commands; plugin files excluded) with their state:
+not compressed, changed after compression, another level, compressed. With `caveman` other than `wyl`, propose
+compressing the files that are not compressed, largest first (rules in `references/caveman.md`); report
+`pliki_kontekstu_tokeny` against the previous retros.
+
 The summary contains notes about the data (paragraphs starting **Note:** / **Uwaga:**); take them into account
 before quoting numbers:
 a window longer than transcript retention, a repo checkout behind its remote branch (rules on disk out of date),
@@ -212,6 +245,12 @@ Fill in the retro file according to the template. Commitments review:
 - **drop** = no effect or cost greater than gain → also remove it from the rules files;
 - **change** = good idea, the form does not work → a new commitment replaces the old one.
 
+Commitments of kind **agent configuration**: "kept" = the configuration is in force (the file has the agreed fields,
+the routing uses the agent); "worth it" = the before/after table of the summary against the commitment's baseline,
+in the same PR size. Fewer than 5 PRs after the change = "too early". The rollback condition met = verdict "change"
+with the proposal to return to the previous configuration (the old values are in `agenci.csv`). "Establish" after 3
+retros with a stable effect: the configuration stays in the agent file, the register stops tracking it.
+
 Before you call something dead or propose "drop" (a rule, directory, script, hook, page), ask the user whether
 anyone uses it: no trace in transcripts does not mean nobody uses it (cloud work, other people, rare use; e.g. a
 directory with a website generated outside sessions). Ask in step 4 together with the verdict, or earlier when the
@@ -240,6 +279,11 @@ below are in English; write them in the user's language.
 - keeping a commitment without a status change: `Keep (recommended)` / `Change: …` / `Drop`;
 - a verdict that changes the status, a new recommendation, a removal from the rules: `Accept (recommended)` /
   `Change: …` / `Reject`;
+- an agent change (one question per agent): the change, the baseline and the rollback condition in the question;
+  `Accept (recommended)` / `Change: …` / `Reject`;
+- caveman compression (one question per group: global files, each repository, memory): number of files and
+  ~tokens at the configured level; `Compress (recommended)` / `Only: …` / `Not now`. The first compression ever is
+  also a commitment (measure: `kontekst_startowy_mediana`, compliance with the compressed rules);
 - a "waiting for the user" item: `Do it now (in a project session)` / `Close` / `Postpone to <date>`.
   "Do it now" = a task for a project session with full context, not retro work. When there is a tool for starting
   sessions (e.g. `start_session`, `spawn_task`), propose it right away as a card (a proposal the user starts with
@@ -264,15 +308,23 @@ Record the answers in section 9 of the retro, the user's own answers verbatim.
    - **project rules:** the repo's CLAUDE.md according to its rules (if changes go through PRs: branch
      `retro/rNN-<topic>` in a separate worktree and a PR);
    - project memory (`~/.claude/projects/*/memory/`) → a `feedback` entry with a `Z-NNN` reference, without
-     duplicating content from `nauki.md`.
-3. `metryki.csv`: `python "${CLAUDE_SKILL_DIR}/scripts/dopisz_metryki.py" --retro RNN --zobowiazania <active>`
+     duplicating content from `nauki.md`;
+   - agent definitions: `~/.claude/agents/<name>.md` directly, a repository's `.claude/agents/<name>.md` like its
+     CLAUDE.md (its rules, a PR when changes go through PRs). Change only the accepted field; a new `description` is
+     written at the `caveman` level. A commitment of kind "agent configuration" with its `Z-NNN`.
+3. Caveman compression of the accepted files: procedure in `references/caveman.md` (`caveman.py kopia`, rewrite,
+   `caveman.py sprawdz` until it passes). Rules written in step 2 are already at the configured level; compress
+   them only when the whole file is accepted.
+4. `metryki.csv`: `python "${CLAUDE_SKILL_DIR}/scripts/dopisz_metryki.py" --retro RNN --zobowiazania <active>`
    (a row from the latest `metryki.json`; it appends columns missing from a newer plugin version at the end of the
-   header).
-4. In the retro: section 10 (what, where, commit or PR), status completed (`**Status:** zakończone` /
+   header). It also writes the agent snapshot to `agenci.csv` from the files on disk, so run it after step 2.
+   An agent change waiting in an unmerged PR is not on disk yet: the next retro shows it "since the last retro" with
+   the merge date; link it to its commitment instead of asking again.
+5. In the retro: section 10 (what, where, commit or PR), status completed (`**Status:** zakończone` /
    `completed`; this resets the reminder counter).
-5. Commit: account mode in the working directory; project mode in the repo (according to its rules),
-   `retro(RNN): <most important change>`. The commit also includes `tokeny-tydzien.csv` (trend); the archive
-   `dane/tokeny-archiwum.json` stays outside git.
+6. Commit: account mode in the working directory; project mode in the repo (according to its rules),
+   `retro(RNN): <most important change>`. The commit also includes `tokeny-tydzien.csv` (trend), `agenci.csv` and
+   `caveman.csv`; the archive `dane/tokeny-archiwum.json` and the backups `dane/caveman/` stay outside git.
 
 ## Step 6. Closing
 

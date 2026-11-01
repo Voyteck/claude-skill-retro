@@ -15,7 +15,16 @@ Co kilka dni roboczych (zalecane: co 2) retro:
    model i poziom rozumowania do zadań;
 3. ocenia, **co działało, a co nie**, także po stronie użytkownika (opcjonalnie);
 4. proponuje **najwyżej 5 zmian**, preferując mechanizmy (testy, hooki, szablony) nad regułami w tekście;
-5. przyjęte zmiany **wdraża** do plików reguł (`CLAUDE.md`, pamięć, `nauki.md`) i rejestru zobowiązań.
+5. przyjęte zmiany **wdraża** do plików reguł (`CLAUDE.md`, pamięć, `nauki.md`), definicji agentów
+   (`.claude/agents`) i rejestru zobowiązań.
+
+Od 0.6.0 retro **zarządza definicjami agentów między retro**: po każdym retro zapisuje migawkę modelu, poziomu
+rozumowania, opisu i promptu każdego agenta (`agenci.csv`), pokazuje każdą zmianę z PR przed nią i po niej (liczba,
+odsetek z poprawką, koszt na PR), pokazuje przydział zadań (kto implementuje PR jakiego rozmiaru, nieużywani agenci)
+do strojenia opisów, a każdą przyjętą zmianę agenta zapisuje jako zobowiązanie z punktem odniesienia i warunkiem
+wycofania. Utrzymuje też **pliki kontekstu w stylu caveman** (`CLAUDE.md`, agenci, pamięć, `nauki.md`, własne skille;
+domyślnie poziom `standard`, bez plików pluginów): własnymi regułami, bez pluginu `caveman`, ze skryptem, który
+odrzuca kompresję gubiącą kod, ścieżki, liczby, nagłówki albo nagłówek YAML, i z przywracaniem.
 
 Jeśli przez 5 dni roboczych nie było retro, nowa sesja Claude Code przypomina (hook `SessionStart`).
 
@@ -94,11 +103,12 @@ Potem założy katalog roboczy i przeprowadzi **retro zero**: bilans dotychczaso
 plugins/retro/.claude-plugin/plugin.json manifest pluginu (wersja)
 plugins/retro/hooks/hooks.json           przypomnienie przy starcie sesji
 plugins/retro/skills/retro/SKILL.md      procedura retro (instrukcje dla Claude'a, po angielsku)
-plugins/retro/skills/retro/scripts/      sygnaly.py, tokeny.py, zbierz_liczby.py, dopisz_metryki.py, zaloz.py, przypomnienie.py,
+plugins/retro/skills/retro/scripts/      sygnaly.py, tokeny.py, efektywnosc.py, agenci.py, caveman.py, zbierz_liczby.py,
+                                         zdarzenia_agentow.py, dopisz_metryki.py, zaloz.py, przypomnienie.py,
                                          wspolne.py, teksty.py (komunikaty skryptów wg języka)
 plugins/retro/skills/retro/assets/       szablony wg języka (pl/, en/): retro, rejestr, nauki, README katalogu;
                                          metryki-naglowek.csv
-plugins/retro/skills/retro/references/   konfiguracja.md, sygnaly.md (znaczenie metryk), cennik.json
+plugins/retro/skills/retro/references/   konfiguracja.md, sygnaly.md (znaczenie metryk), caveman.md, cennik.json
 testy/test_retro.py                      testy na sztucznych transkrypcjach
 ```
 

@@ -1,5 +1,30 @@
 # Zmiany
 
+## 0.6.0 · 2026-11-01
+
+Retro zarządza definicjami agentów między retro i utrzymuje pliki kontekstu w stylu caveman.
+
+- **Migawka konfiguracji agentów** (`agenci.csv` w katalogu roboczym, commitowany): `dopisz_metryki.py` na koniec
+  retro zapisuje model, poziom, skróty opisu i treści, datę ostatniego commita pliku; wiersz `RNN-start`, gdy stan
+  sprzed retro (z `agenci.json` sygnałów) różni się od poprzedniego zapisu. `--bez-agentow` wyłącza.
+- **Zmiany agentów i ich efekt** (nowy `scripts/agenci.py`, sekcja podsumowania): każda zmiana (model, poziom, opis,
+  treść, nowy, usunięty; w retro, poza retro albo od ostatniego retro) z PR przed i po: liczba, % z poprawką, koszt
+  agenta i całkowity na PR, mieszanka rozmiarów. `efektywnosc.koszty_pr` zapisuje koszt i czas pierwszej pracy
+  każdego typu agenta na PR (`pr_typy`).
+- **Przydział zadań** (do strojenia opisów): kto implementował scalone PR wg rozmiaru, starty wg typu podagenta
+  (własny, wbudowany, brak tutaj), agenci bez startów. Tabela obecnych agentów ma starty, datę zmiany i opis.
+- **Zobowiązanie rodzaju „konfiguracja agenta”** (szablony rejestru pl/en): punkt odniesienia i warunek wycofania;
+  jedna zmiana na agenta na retro; `SKILL.md` (reguła 7, kroki 1, 3, 4, 5) i sekcja 2a szablonów.
+- **Caveman** (nowy `scripts/caveman.py`, `references/caveman.md`, sekcja 2b szablonów): pliki .md ładowane do
+  kontekstu (reguły, agenci, pamięć, `nauki.md`, własne skille i polecenia; bez plików pluginów) z oszacowaniem
+  tokenów i stanem kompresji. Kompresję pisze Claude wg poziomu `caveman` (`wyl`, `lekki`, `standard` domyślnie,
+  `ultra`); skrypt robi kopię w `dane/caveman/RNN/`, sprawdza po kompresji nagłówek YAML, bloki kodu, kod w linii,
+  adresy, nagłówki, wiersze tabel, liczby, identyfikatory, ścieżki i słowa wielkimi literami (ostrzeżenie przy
+  mniejszej liczbie przeczeń), zapisuje `caveman.csv` i przywraca oryginał. Nowe pola `caveman`, `caveman_pomin`.
+- **Nowe kolumny `metryki.csv`** (na końcu): `agenci_zdefiniowani`, `agenci_nieuzywani`, `agenci_zmiany_od_retro`,
+  `pr_bez_agenta_proc`, `pliki_kontekstu`, `pliki_kontekstu_tokeny`, `caveman_do_kompresji`,
+  `caveman_do_kompresji_tokeny`; `pliki_kontekstu_tokeny` dochodzi do porównania z poprzednimi retro.
+
 ## 0.5.0 · 2026-10-24
 
 Retro zastępuje skill `claude-usage-report`: przeniesione jest to, czego retro jeszcze nie miało.
