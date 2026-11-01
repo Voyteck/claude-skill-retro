@@ -18,6 +18,10 @@ Co kilka dni roboczych (zalecane: co 2) retro:
 5. przyjęte zmiany **wdraża** do plików reguł (`CLAUDE.md`, pamięć, `nauki.md`), definicji agentów
    (`.claude/agents`) i rejestru zobowiązań.
 
+Od 0.7.0 retro **kończy się tabelą wyników w czacie**: koszt i tokeny, koszt na scalony PR, % PR z poprawką, rundy na PR,
+podział na model autora, rozmiar PR i poziom rozumowania, wobec 2–3 poprzednich retro, z oznaczeniem prób poniżej 5 PR.
+Podsumowanie ostrzega, gdy koszt tygodnia jest wysoki, a w śledzonych repo jest mało PR (praca mogła się przenieść).
+
 Od 0.6.0 retro **zarządza definicjami agentów między retro**: po każdym retro zapisuje migawkę modelu, poziomu
 rozumowania, opisu i promptu każdego agenta (`agenci.csv`), pokazuje każdą zmianę z PR przed nią i po niej (liczba,
 odsetek z poprawką, koszt na PR), pokazuje przydział zadań (kto implementuje PR jakiego rozmiaru, nieużywani agenci)

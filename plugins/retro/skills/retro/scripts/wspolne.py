@@ -54,6 +54,7 @@ DOMYSLNA_KONFIGURACJA = {
     "pr_max_commitow": 40,                 # większe PR pomijane (scalenia gałęzi, partie)
     "pr_pomin_galezie": ["integration/", "batch/"],   # przedrostki gałęzi pomijanych w rundach
     "pr_progi_rozmiaru": [50, 300],        # rozmiar PR w liniach (dodane + usunięte): S ≤ 50, M ≤ 300, L > 300
+    "ostrzezenie_koszt_tygodnia_usd": 100, # od tego kosztu tygodnia ostrzeżenie o możliwej zmianie repo pracy (od 0.7.0)
     # pliki kontekstu w stylu caveman (od 0.6.0)
     "caveman": "standard",                 # wyl | lekki | standard | ultra (references/caveman.md)
     "caveman_pomin": [],                   # wzorce ścieżek (`~/…`, glob) albo nazw plików pomijanych przy kompresji

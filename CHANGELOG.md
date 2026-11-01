@@ -1,5 +1,22 @@
 # Zmiany
 
+## 0.7.0 · 2026-11-01
+
+Zamknięcie retro to raport z wyników wobec poprzednich retro, a nie tylko kilka zdań.
+
+- **Tabela wyników w czacie** (`SKILL.md`, krok 6, obowiązkowa): koszt i tokeny, koszt na scalony PR, % PR z poprawką,
+  rundy na PR, podział na model autora, rozmiar PR i poziom rozumowania, gdy jest znany. Skrypt liczy ją w nowej sekcji
+  „Wyniki wobec poprzednich retro”: z `metryki.csv` bierze tylko okna, a koszt i PR liczy dla każdego okna od nowa jedną
+  definicją. Każda liczba z próby < 5 PR ma `*` i nie wchodzi do kierunku.
+- **Okno z tej samej definicji co tygodnie** (`efektywnosc.w_oknie`): wiersz okna, kolumna okna w tabeli kosztu (nowa)
+  i `metryki.csv` używają jednego filtra i tych samych rekordów; gdy okno obejmuje kilka tygodni, podsumowanie podaje
+  podział jego PR na tygodnie scalenia.
+- **Koszt i jakość na PR także dla samego okna:** druga tabela obok tej z kilku tygodni.
+- **Ostrzeżenie o możliwej zmianie repo pracy:** wysoki koszt tygodnia przy małej liczbie PR w śledzonych repo albo
+  kosztu na PR kilka razy powyżej innych tygodni. Nowe pole `ostrzezenie_koszt_tygodnia_usd` (domyślnie 100).
+- **Notka o odczycie zdarzeń agentów:** data odczytu i ostatniego zdarzenia źródła zdalnego, ile PR okna nie ma
+  implementatora i ile z nich scalono po ostatnim zdarzeniu; wyjaśnia wysokie `pr_bez_agenta_proc`.
+
 ## 0.6.0 · 2026-11-01
 
 Retro zarządza definicjami agentów między retro i utrzymuje pliki kontekstu w stylu caveman.

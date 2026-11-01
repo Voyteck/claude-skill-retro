@@ -340,8 +340,63 @@ TEKSTY = {
     "ef_gh_blad": {"pl": "Rundy poprawek `{repo}`: błąd gh ({blad}).", "en": "Fix rounds `{repo}`: gh error ({blad})."},
     "ef_koszt_bez_trendu": {"pl": "Koszt wg roli pominięty: wymaga archiwum trendu (bez `--bez-trendu` i `--projekt`).",
                             "en": "Cost by role skipped: it needs the trend archive (without `--bez-trendu` and `--projekt`)."},
-    "ef_zdarzenia_brak": {"pl": "Zdarzenia agentów `{nazwa}`: **brak odczytu** ({opis}).",
-                          "en": "Agent events `{nazwa}`: **not read** ({opis})."},
+    "ef_zdarzenia_brak": {"pl": "Zdarzenia agentów `{nazwa}`: **brak odczytu** ({opis}); PR z tej maszyny nie będą "
+                                "dopasowane do agentów.",
+                          "en": "Agent events `{nazwa}`: **not read** ({opis}); PRs from that machine will not be "
+                                "matched to agents."},
+    "ef_zdarzenia_odczyt": {
+        "pl": "**Uwaga:** zdarzenia agentów `{nazwa}` odczytano {odczyt}, ostatnie zdarzenie: {ostatnie}. Bez przypisanego "
+              "implementatora jest {bez} z {wszystkie} PR okna (`pr_bez_agenta_proc`); {po} z nich scalono po ostatnim "
+              "zdarzeniu, więc odczyt ich nie obejmuje (odśwież go przed wnioskiem). Pozostałe: zadanie agenta nie podaje "
+              "numeru PR, numer nie jest jednoznaczny wśród repo albo PR pisała sesja główna.",
+        "en": "**Note:** agent events `{nazwa}` were read at {odczyt}, last event: {ostatnie}. {bez} of {wszystkie} PRs in "
+              "the window have no implementer (`pr_bez_agenta_proc`); {po} of them were merged after the last event, so "
+              "the reading does not cover them (refresh it before concluding). The others: the agent's task gives no PR "
+              "number, the number is ambiguous across repos, or the main session wrote the PR."},
+    "ef_zmiana_repo": {
+        "pl": "**Uwaga:** tydzień {tydzien}: koszt ${koszt}, a scalonych PR w śledzonych repo tylko {pr} (śledzone: {repo}). "
+              "Praca mogła przejść do repo, którego retro nie śledzi; wtedy % z poprawką i koszt na PR dotyczą nie tego "
+              "repo. Sprawdź to przed wnioskiem i dopisz nowe repo w `repozytoria_dodatkowe`.",
+        "en": "**Note:** week {tydzien}: cost ${koszt}, but only {pr} merged PRs in tracked repos (tracked: {repo}). Work "
+              "may have moved to a repo the retro does not track; % with a fix and cost per PR would then describe the "
+              "wrong repo. Check it before concluding and add the new repo to `repozytoria_dodatkowe`."},
+    "ef_okno_tygodnie": {
+        "pl": "Okno (od {od}) i wiersze tygodni liczą te same PR tą samą definicją, tylko inaczej pocięte; PR okna wg "
+              "tygodnia scalenia: {podzial}. Tydzień zaczyna się w poniedziałek, więc PR z weekendu należy do poprzedniego. "
+              "Nie porównuj wiersza okna z pojedynczym tygodniem i nie dodawaj ich do siebie.",
+        "en": "The window (from {od}) and the week rows count the same PRs by the same definition, only cut differently; "
+              "window PRs by merge week: {podzial}. A week starts on Monday, so a weekend PR belongs to the previous one. "
+              "Do not compare the window row with a single week and do not add them up."},
+    "ef_wyn_tytul": {"pl": "### Wyniki wobec poprzednich retro (tabela do zamknięcia retro)",
+                     "en": "### Results against previous retros (table for closing the retro)"},
+    "ef_wyn_opis": {
+        "pl": "Każde okno policzone teraz tą samą definicją: koszt w cenach bieżących modeli rodziny ze wszystkich źródeł, "
+              "bez chmury; PR ze śledzonych repo, scalone w oknie. Dlatego liczby mogą się różnić od starych wierszy "
+              "`metryki.csv`. Komórki podziału: PR · % z poprawką · rund na PR (implementator także: · koszt agentów na PR). "
+              "* = mniej niż {min_pr} PR: wskazówka, nie wynik. „—” = brak danych albo okno starsze niż tabele "
+              "(`efektywnosc_tygodnie`). Koszt i tokeny całego okna nie porównują się między oknami różnej długości.",
+        "en": "Every window computed now by one definition: cost at current model prices of the family from all sources, "
+              "cloud excluded; PRs from tracked repos merged in the window. Numbers may therefore differ from old "
+              "`metryki.csv` rows. Breakdown cells: PRs · % with a fix · rounds per PR (implementer also: · agent cost per "
+              "PR). * = fewer than {min_pr} PRs: a hint, not a result. \"—\" = no data or a window older than the tables "
+              "(`efektywnosc_tygodnie`). A window's total cost and tokens do not compare across windows of different length."},
+    "ef_wyn_kierunek": {"pl": "kierunek (wobec mediany poprzednich, bez prób < 5 PR)",
+                        "en": "direction (against the previous median, samples < 5 PRs excluded)"},
+    "ef_wyn_okno": {"pl": "okno", "en": "window"},
+    "ef_wyn_koszt": {"pl": "koszt (USD)", "en": "cost (USD)"},
+    "ef_wyn_chmura": {"pl": "chmura, osobno (USD)", "en": "cloud, separate (USD)"},
+    "ef_wyn_tokeny": {"pl": "tokeny (mln)", "en": "tokens (M)"},
+    "ef_wyn_bez_odczytu": {"pl": "tokeny bez odczytu z cache (mln)", "en": "tokens without cache reads (M)"},
+    "ef_wyn_pr": {"pl": "scalone PR", "en": "merged PRs"},
+    "ef_wyn_koszt_na_pr": {"pl": "koszt na scalony PR", "en": "cost per merged PR"},
+    "ef_wyn_z_poprawka": {"pl": "% PR z poprawką", "en": "% PRs with a fix"},
+    "ef_wyn_rundy": {"pl": "rundy na PR", "en": "rounds per PR"},
+    "ef_wyn_model": {"pl": "model autora: {m}", "en": "author model: {m}"},
+    "ef_wyn_rozmiar": {"pl": "rozmiar PR: {r}", "en": "PR size: {r}"},
+    "ef_wyn_impl": {"pl": "implementator: {k}", "en": "implementer: {k}"},
+    "ef_wyn_bez_impl": {"pl": "bez przypisanego implementatora", "en": "no implementer attributed"},
+    "ef_wyn_poziom": {"pl": "koszt wg poziomu: {p}", "en": "cost by effort: {p}"},
+    "ef_wyn_poziom_brak": {"pl": "nieznany", "en": "unknown"},
     "ef_zdarzenia_ok": {"pl": "Zdarzenia agentów `{nazwa}`: {opis}, {n} zdarzeń.",
                         "en": "Agent events `{nazwa}`: {opis}, {n} events."},
     "ef_konf_tytul": {"pl": "### Koszt i jakość na PR wg konfiguracji implementatora (model · poziom rozumowania)",
@@ -361,6 +416,8 @@ TEKSTY = {
               "compare it only within one size. Current model prices of the family, main-session cost excluded; that "
               "is why the \"main session\" row (implementation in the session) has only quality and control cost. "
               "* = fewer than {min_pr} PRs: a hint, not a result."},
+    "ef_konf_okno": {"pl": "Samo okno retro ({od} … {do}), te same definicje:",
+                     "en": "The retro window alone ({od} … {do}), same definitions:"},
     "ef_konf_brak": {"pl": "Brak scalonych PR z przypisanym kosztem agentów.",
                      "en": "No merged PRs with attributed agent cost."},
     "ef_konf_kolumny": {

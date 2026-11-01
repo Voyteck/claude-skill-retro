@@ -1049,6 +1049,7 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
     od_tygodnia = min(tokeny.poniedzialek(do_data) - dt.timedelta(weeks=tygodnie - 1), tokeny.poniedzialek(od_data))
     koszty = [(nazwa, *efektywnosc.koszt_wg_roli(ar.get("calls") or {}, cennik, wzorce, od_tygodnia))
               for nazwa, ar in archiwa]
+    rekordy = [(nazwa, efektywnosc.rekordy_kosztu(ar.get("calls") or {}, cennik, wzorce)) for nazwa, ar in archiwa]
     if not archiwa:
         uwagi.append(t("ef_koszt_bez_trendu"))
     rundy, repo_gh = None, {}
@@ -1079,6 +1080,7 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
     powroty = [(tokeny.ZRODLO, *efektywnosc.powroty(
         dict(lokalne, zdarzenia=[z for z in lokalne["zdarzenia"] if z["s"] in w_zakresie]), wzorce, od, do))]
     zdarzenia_zrodel = [(lokalne, repo_sesji)]
+    odczyty = []
     for zrodlo in konf.get("zrodla_zdalne") or []:
         nazwa = str(zrodlo.get("nazwa") or "").strip()
         if (not nazwa or zrodlo.get("wlaczone") is False or a.bez_zdalnych or katalog is None
@@ -1089,11 +1091,16 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
             uwagi.append(t("ef_zdarzenia_brak", nazwa=nazwa, opis=zamaz(opis)[0]))
             continue
         uwagi.append(t("ef_zdarzenia_ok", nazwa=nazwa, opis=opis, n=len(dane.get("zdarzenia") or [])))
+        odczyty.append((nazwa, dane))
         powroty.append((nazwa, *efektywnosc.powroty(dane, wzorce, od, do)))
         zdarzenia_zrodel.append((dane, {}))                 # repo nieznane: PR dopasowane po numerze
     polaczone = None
     if rundy is not None:
         polaczone = efektywnosc.polacz_pr(rundy, efektywnosc.koszty_pr(zdarzenia_zrodel, wzorce, cennik))
+        uwagi += [efektywnosc.notka_zdarzen(nazwa, dane, polaczone, od, do) for nazwa, dane in odczyty]
+    uwagi = efektywnosc.ostrzezenia_repo(
+        koszty, rundy, sorted({wlasciciel or nazwa for nazwa, wlasciciel in repo_gh.items()}),
+        prog_usd=konf.get("ostrzezenie_koszt_tygodnia_usd") or efektywnosc.PROG_KOSZTU_TYGODNIA, od=od_data) + uwagi
     katalogi_agentow = [(nazwa, pathlib.Path(sciezka) / ".claude" / "agents") for nazwa, sciezka in repozytoria.items()]
     katalogi_agentow.append(("~/.claude", wspolne.katalog_claude() / "agents"))
     definicje = agenci.wczytaj_definicje(katalogi_agentow)
@@ -1101,6 +1108,8 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
     zmiany = agenci.zmiany(migawki, definicje)
     starty = agenci.starty([d for d, _ in zdarzenia_zrodel], od, do)
     return {"wzorce": wzorce, "koszty": koszty, "rundy": rundy, "powroty": powroty, "uwagi": uwagi,
+            "rekordy": rekordy, "od_tygodnia": od_tygodnia,
+            "okna_kosztu": {nazwa: efektywnosc.koszt_okna(lista, od, do) for nazwa, lista in rekordy},
             "polaczone": polaczone, "katalogi_agentow": katalogi_agentow, "definicje": definicje,
             "migawki": bool(migawki), "zmiany": zmiany, "starty": starty,
             "efekty": agenci.efekt_zmian(zmiany, polaczone, od_tygodnia, konf.get("pr_progi_rozmiaru")),
@@ -1367,9 +1376,13 @@ def main(argv=None):
     l += raport_narzedzi(narzedzia)
     l += raport_trendu(trend_wiersze, trend_uwaga, zdalne_uwagi)
     porown = efektywnosc.porownanie(katalog / "metryki.csv", metryki) if katalog is not None else ([], [])
+    wyniki = efektywnosc.raport_wynikow(
+        efektywnosc.okna_retro(katalog / "metryki.csv" if katalog is not None else None, metryki, od, do),
+        ef["rekordy"], ef["rundy"], ef["polaczone"], ef["od_tygodnia"], konf.get("pr_progi_rozmiaru"))
     l += efektywnosc.raport(porown, ef["koszty"], ef["rundy"], od, do, ef["powroty"], ef["uwagi"],
                             przerwa=konf.get("pr_przerwa_rundy_min") or efektywnosc.PRZERWA_RUNDY_MIN,
-                            polaczone=ef["polaczone"], wzorce=ef["wzorce"], progi=konf.get("pr_progi_rozmiaru"))
+                            polaczone=ef["polaczone"], wzorce=ef["wzorce"], progi=konf.get("pr_progi_rozmiaru"),
+                            okna_kosztu=ef["okna_kosztu"], wyniki=wyniki)
     l += agenci.raport(ef["definicje"], ef["wzorce"], ef["zmiany"], ef["efekty"], ef["przydzial"], ef["starty"],
                        ef["migawki"])
     l += caveman.raport(kontekst, konf)

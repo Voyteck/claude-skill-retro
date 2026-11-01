@@ -157,7 +157,9 @@ summary compares the token and fix indicators with the last 3 retros in `metryki
 model and reasoning effort week by week (from the trend archives, so also for remote sources), fix rounds in PRs
 merged on GitHub by author model (from `Co-Authored-By: Claude <Model>` trailers), returns from review and CI in
 transcripts by implementer and model, **cost and quality per PR by implementer configuration** (model · effort ·
-PR size) and the current agent definitions (`.claude/agents`: model, effort, role). In section 2a write: what got
+PR size), the same table for the retro window alone, and the current agent definitions (`.claude/agents`: model, effort,
+role). It opens with "Results against previous retros" („Wyniki wobec poprzednich retro”), the table for the closing
+message (step 6), every window computed by today's definition. In section 2a write: what got
 better and what got worse, with numbers against the previous 2–3 retros; efficiency by implementer configuration;
 and the **agent selection rules** table.
 
@@ -205,7 +207,9 @@ compressing the files that are not compressed, largest first (rules in `referenc
 
 The summary contains notes about the data (paragraphs starting **Note:** / **Uwaga:**); take them into account
 before quoting numbers:
-a window longer than transcript retention, a repo checkout behind its remote branch (rules on disk out of date),
+a window longer than transcript retention, a week with high cost and few merged PRs in tracked repos (work may have
+moved to an untracked repo: check before quoting per-PR numbers, propose adding it to `repozytoria_dodatkowe`), the date
+remote agent events were read (PRs merged after it have no implementer), a repo checkout behind its remote branch (rules on disk out of date),
 projects with memory but no sessions in the window, repos with commits but no local sessions (sandbox, cloud: the
 per-message and per-session numbers do not see that work), directories with copies of `CLAUDE.md` (candidates for
 `katalogi_regul_osobno`; adding them is the user's decision), models without a price in the price list. Secrets in
@@ -328,8 +332,21 @@ Record the answers in section 9 of the retro, the user's own answers verbatim.
 
 ## Step 6. Closing
 
-In the chat, 5–8 sentences: the most important conclusion, what was accepted, what changes from tomorrow, a link
-to the retro file.
+The closing message in the chat has two mandatory parts, in this order. It is the owner's report: never replace the
+table with a sentence, and do not point to section 2a instead of it.
+
+1. **Results table against the previous 2–3 retros.** Copy "Results against previous retros" („Wyniki wobec poprzednich
+   retro”) from the summary as a table: cost and tokens, cost per merged PR, % of PRs with a fix, rounds per PR, the
+   split by author model, PR size and implementer effort (when known), and the direction column. Rules:
+   - keep every `*`: a number from fewer than 5 PRs is marked, and in the sentences below it is called a hint, not a
+     result. A cell or row with no data stays "—": say what is missing, do not fill it by hand or drop the row;
+   - directly under the table repeat every **Note:** / **Uwaga:** of the section that changes how it reads, above all
+     a possible move to an untracked repo and the date agent events were read. If such a note applies to the window,
+     say which numbers cannot be trusted yet;
+   - if the remote sources were refreshed or a repo added after `sygnaly.py` ran, run it again first: the table must
+     match the final data. A table made by hand (e.g. after a repo move) says so and gives its source.
+2. **5–8 sentences:** the most important conclusion, what was accepted, what changes from tomorrow, a link to the retro
+   file.
 
 ## Maintenance
 

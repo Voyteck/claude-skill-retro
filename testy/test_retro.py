@@ -1658,6 +1658,204 @@ pytest -q
 """
 
 
+class Test070(Srodowisko):
+    """Zmiany 0.7.0: tabela wyników do zamknięcia retro, tabele samego okna, ostrzeżenie o repo, notka o odczycie."""
+
+    STREFA = dt.timezone(dt.timedelta(hours=1))
+    dopisz = TestSygnalyUzupelnienia.dopisz
+    zapisz_agentow = Test030.zapisz_agentow
+
+    def setUp(self):
+        super().setUp()
+        import teksty
+        teksty.ustaw("pl")
+
+    def pr(self, nr, kiedy, autor="Opus", rundy=0, linie=100, impl=None, koszt=None):
+        import collections
+        import tokeny
+        scalony = kiedy.astimezone()
+        return {"repo": "w/r", "pr": nr, "scalony": scalony, "tydzien": tokeny.poniedzialek(scalony), "autor": autor,
+                "rundy": rundy, "commity": 1 + rundy, "poprawki": collections.Counter(), "h": 1.0, "linie": linie,
+                "pliki": 1, "pr_impl": impl, "pr_koszt": collections.Counter(koszt) if koszt else None, "pr_typy": None}
+
+    def wywolanie(self, kiedy, wyj=1000000, efekt="high"):
+        return {"ts": kiedy.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z"), "s": "s1",
+                "model": "claude-opus-5-5", "out": wyj, "cr": 2000000, "eff": efekt}
+
+    def test_okna_retro_nie_licza_dnia_dwa_razy_i_pomijaja_to_samo_okno(self):
+        import efektywnosc as ef
+        plik = self.tmp / "metryki.csv"
+        plik.write_text("retro,okno_od,okno_od_godzina,okno_do,chmura_koszt_usd\n"
+                        "R01,2026-10-01,00:00,2026-10-05,\nR02,2026-10-05,10:00,2026-10-09,3\n"
+                        "R03,2026-10-09,12:30,2026-10-12,\n", encoding="utf-8")
+        od = dt.datetime(2026, 10, 12, 18, 0).astimezone()
+        do = dt.datetime(2026, 10, 15).astimezone()
+        okna = ef.okna_retro(plik, {"okno_od": "2026-10-12", "okno_od_godzina": "18:00"}, od, do)
+        self.assertEqual([o[0] for o in okna], ["R01", "R02", "R03", "teraz"])
+        self.assertEqual(okna[0][2], okna[1][1])
+        self.assertEqual(okna[2][2], od)                         # R03 do początku bieżącego, nie do północy
+        self.assertEqual(okna[1][3], 3)
+        ponownie = ef.okna_retro(plik, {"okno_od": "2026-10-09", "okno_od_godzina": "12:30"}, od, do)
+        self.assertEqual([o[0] for o in ponownie], ["R01", "R02", "teraz"])
+        self.assertEqual([o[0] for o in ef.okna_retro(None, {}, od, do)], ["teraz"])
+
+    def test_tabela_wynikow_gwiazdki_podzial_kierunek(self):
+        import efektywnosc as ef
+        import tokeny
+        cennik = tokeny.wczytaj_cennik({})
+        wz = ef.wzorce_rol({})
+        t0 = dt.datetime(2026, 10, 5, 12, 0, tzinfo=self.STREFA)      # poprzednie okno: 6 PR
+        t1 = dt.datetime(2026, 10, 12, 12, 0, tzinfo=self.STREFA)     # bieżące: 2 PR, próba za mała
+        impl = ("programista", "claude-opus-5-5", "high", "2026-10-05T10:00:00Z")
+        rundy = [self.pr(i, t0, rundy=1 if i < 3 else 0, linie=20, impl=impl, koszt={"implementacja": 2.0})
+                 for i in range(6)]
+        rundy += [self.pr(10, t1, autor="Sonnet", rundy=1, linie=500), self.pr(11, t1, autor="Sonnet", linie=500)]
+        calls = {"a": self.wywolanie(t0), "b": self.wywolanie(t1, efekt=None)}
+        zdalne = {"c": self.wywolanie(t1)}
+        rekordy = [("lokalne", ef.rekordy_kosztu(calls, cennik, wz)), ("sandbox", ef.rekordy_kosztu(zdalne, cennik, wz))]
+        okna = [("R07", t0 - dt.timedelta(hours=1), t0 + dt.timedelta(days=1), None),
+                ("teraz", t1 - dt.timedelta(hours=1), t1 + dt.timedelta(days=1), 12.0)]
+        l = "\n".join(ef.raport_wynikow(okna, rekordy, rundy, rundy, dt.date(2026, 9, 28)))
+        self.assertIn("| metryka | R07 | teraz | kierunek", l)
+        self.assertRegex(l, r"\| scalone PR \| 6 \| 2\* \| — \|")
+        self.assertRegex(l, r"\| % PR z poprawką \| 50% \| 50%\* \| — \|")     # bieżące < 5 PR: bez kierunku
+        self.assertRegex(l, r"\| rundy na PR \| 0.5 \| 0.5\* \|")
+        self.assertRegex(l, r"\| koszt na scalony PR \| \$\d+\.\d\d \| \$\d+\.\d\d\* \|")
+        self.assertIn("| model autora: Opus | 6 PR · 50% · 0.5 | — | — |", l)
+        self.assertIn("| model autora: Sonnet | — | 2* PR · 50% · 0.5 | — |", l)
+        self.assertIn("| rozmiar PR: S | 6 PR · 50% · 0.5 | — | — |", l)
+        self.assertIn("| rozmiar PR: L | — | 2* PR · 50% · 0.5 | — |", l)
+        self.assertIn("| implementator: Opus · high | 6 PR · 50% · 0.5 · $2.00 | — | — |", l)
+        self.assertIn("| bez przypisanego implementatora | — | 2* PR · 50% · 0.5 | — |", l)
+        self.assertIn("koszt wg poziomu: high", l)
+        self.assertIn("koszt wg poziomu: nieznany", l)              # poziom nieznany nie znika z podziału
+        self.assertIn("· `sandbox`", l)
+        self.assertIn("| chmura, osobno (USD) | — | $12 |", l)
+
+    def test_tabela_wynikow_okno_starsze_niz_tabele_i_kierunek(self):
+        import efektywnosc as ef
+        t0 = dt.datetime(2026, 10, 5, 12, 0, tzinfo=self.STREFA)
+        t1 = dt.datetime(2026, 10, 12, 12, 0, tzinfo=self.STREFA)
+        rundy = [self.pr(i, t0, rundy=1) for i in range(5)] + [self.pr(i, t1) for i in range(10, 15)]
+        okna = [("R07", t0 - dt.timedelta(hours=1), t0 + dt.timedelta(days=1), None),
+                ("teraz", t1 - dt.timedelta(hours=1), t1 + dt.timedelta(days=1), None)]
+        l = "\n".join(ef.raport_wynikow(okna, [], rundy, None, dt.date(2026, 9, 1)))
+        self.assertRegex(l, r"\| % PR z poprawką \| 100% \| 0% \| ↓ poprawa \|")
+        self.assertIn("| koszt (USD) | — | — | — |", l)                 # bez archiwów koszt nieznany, nie $0
+        self.assertIn("| koszt na scalony PR | — | — | — |", l)
+        l = "\n".join(ef.raport_wynikow(okna, [], rundy, None, t1.date()))    # R07 starsze niż tabele
+        self.assertRegex(l, r"\| scalone PR \| — \| 5 \| — \|")
+        l = "\n".join(ef.raport_wynikow(okna, [], None, None, t1.date()))     # bez GitHuba
+        self.assertRegex(l, r"\| scalone PR \| — \| — \| — \|")
+
+    def test_wiersz_okna_i_tygodnie_ta_sama_definicja(self):
+        import efektywnosc as ef
+        niedziela = dt.datetime(2026, 10, 25, 12, 0, tzinfo=self.STREFA)
+        wtorek = dt.datetime(2026, 10, 27, 12, 0, tzinfo=self.STREFA)
+        impl = ("programista", "claude-sonnet-5-5", "medium", "2026-10-25T10:00:00Z")
+        stary = self.pr(1, wtorek - dt.timedelta(days=14), impl=("programista", "claude-opus-5-5", "high", ""),
+                        koszt={"implementacja": 9.0})
+        rundy = [stary, self.pr(2, niedziela, impl=impl, koszt={"implementacja": 1.0}), self.pr(3, wtorek)]
+        od = niedziela - dt.timedelta(hours=1)
+        do = wtorek + dt.timedelta(days=1)
+        self.assertEqual([r["pr"] for r in ef.w_oknie(rundy, od, do)], [2, 3])
+        self.assertEqual(ef.w_oknie(None, od, do), [])
+        tydz = dt.date(2026, 10, 19)
+        tab = {(tydz, "implementacja", "Opus", "high"): 30.0}
+        cz = lambda koszt: {"czas": niedziela.astimezone(), "koszt": koszt, "klucz": ("implementacja", "Opus", "high")}  # noqa: E731
+        okno_kosztu = ef.koszt_okna([cz(5.0), dict(cz(7.0), czas=do)], od, do)   # koniec okna nie należy do okna
+        import collections
+        l = "\n".join(ef.raport(([], []), [("lokalne", collections.defaultdict(float, tab), {tydz: 30.0})], rundy, od, do,
+                                [], [], dzis=dt.date(2026, 11, 1), polaczone=rundy, wzorce=ef.wzorce_rol({}),
+                                okna_kosztu={"lokalne": okno_kosztu}))
+        self.assertRegex(l, r"\| \*\*okno retro\*\* \| 2 \| 0% \|")
+        self.assertIn("PR okna wg tygodnia scalenia: 10-19: 1, 10-26: 1.", l)     # PR z niedzieli w poprzednim tygodniu
+        self.assertIn("| rola · model | 10-19 | **okno retro** |", l)
+        self.assertIn("| implementacja · Opus · high | 30 (100%) | 5.00 (100%) |", l)
+        ogon = l.split("Samo okno retro")[1]
+        przed = l.split("Samo okno retro")[0]
+        self.assertIn("Opus · high", przed.split("Koszt i jakość na PR")[1])      # tabela z kilku tygodni: stary PR też
+        self.assertIn("Sonnet · medium | M | 1* |", ogon)                         # samo okno: bez starego PR
+        self.assertNotIn("Opus · high", ogon)
+        self.assertIn("PR bez przypisanej pracy agentów: 1 z 2", ogon)
+
+    def test_ostrzezenie_o_zmianie_repo(self):
+        import efektywnosc as ef
+        tygodnie = [dt.date(2026, 10, 5), dt.date(2026, 10, 12), dt.date(2026, 10, 19), dt.date(2026, 10, 26)]
+        koszty = lambda *k: [("sandbox", {}, dict(zip(tygodnie, k)))]  # noqa: E731
+        pr = lambda *n: [{"tydzien": w, "pr": i} for w, ile in zip(tygodnie, n) for i in range(ile)]  # noqa: E731
+        dzis = dt.date(2026, 10, 28)
+        self.assertEqual(ef.ostrzezenia_repo(koszty(300, 300, 300, 300), pr(30, 30, 30, 30), ["w/r"], dzis), [])
+        # brak PR w drogim tygodniu
+        w = ef.ostrzezenia_repo(koszty(300, 300, 300, 300), pr(30, 30, 30, 0), ["w/r"], dzis)
+        self.assertEqual(len(w), 1)
+        self.assertIn("tydzień 2026-10-26 (niezak.): koszt $300, a scalonych PR w śledzonych repo tylko 0", w[0])
+        self.assertIn("`w/r`", w[0])
+        self.assertIn("repozytoria_dodatkowe", w[0])
+        # 5 PR to nie „mało”, ale koszt na PR kilka razy powyżej innych tygodni (przypadek R05)
+        self.assertEqual(len(ef.ostrzezenia_repo(koszty(700, 1200, 1300, 330), pr(100, 76, 99, 5), ["w/r"], dzis)), 1)
+        # tani tydzień bez PR nie ostrzega; mało PR przy zwykłym koszcie na PR też nie
+        self.assertEqual(ef.ostrzezenia_repo(koszty(50, 50, 50, 50), pr(0, 0, 0, 0), ["w/r"], dzis), [])
+        self.assertEqual(ef.ostrzezenia_repo(koszty(3000, 3000, 3000, 200), pr(100, 100, 100, 3), ["w/r"], dzis), [])
+        # tydzień sprzed okna nie wraca w kolejnych retro
+        stary = ef.ostrzezenia_repo(koszty(300, 300, 300, 300), pr(0, 30, 30, 30), ["w/r"], dzis, od=dt.date(2026, 10, 24))
+        self.assertEqual(stary, [])
+        self.assertEqual(len(ef.ostrzezenia_repo(koszty(300, 300, 300, 300), pr(30, 30, 0, 30), ["w/r"], dzis,
+                                                 od=dt.date(2026, 10, 24))), 1)    # tydzień 10-19 dotyka okna
+        self.assertEqual(len(ef.ostrzezenia_repo(koszty(50, 50, 50, 50), pr(0, 0, 0, 0), ["w/r"], dzis, prog_usd=40)), 4)
+        # bez danych z GitHuba nie ma o czym ostrzegać; koszty źródeł się sumują
+        self.assertEqual(ef.ostrzezenia_repo(koszty(300, 300, 300, 300), None, ["w/r"], dzis), [])
+        dwa = [("a", {}, {tygodnie[0]: 60.0}), ("b", {}, {tygodnie[0]: 60.0})]
+        self.assertEqual(len(ef.ostrzezenia_repo(dwa, [], [], dzis)), 1)
+
+    def test_notka_o_odczycie_zdarzen(self):
+        import efektywnosc as ef
+        t0 = dt.datetime(2026, 10, 27, 12, 0, tzinfo=dt.timezone.utc)
+        iso = lambda x: x.isoformat().replace("+00:00", "Z")  # noqa: E731
+        dane = {"meta": {"odczyt_utc": iso(t0 + dt.timedelta(hours=1))},
+                "zdarzenia": [{"ts": iso(t0 - dt.timedelta(hours=2))}], "agenci": {"a": {"ts": iso(t0)}}}
+        impl = ("programista", "claude-opus-5-5", "high", "")
+        lista = [self.pr(1, t0 - dt.timedelta(hours=1), impl=impl, koszt={"implementacja": 1.0}),
+                 self.pr(2, t0 - dt.timedelta(hours=1)), self.pr(3, t0 + dt.timedelta(hours=3))]
+        od, do = t0 - dt.timedelta(days=1), t0 + dt.timedelta(days=1)
+        n = ef.notka_zdarzen("sandbox", dane, lista, od, do)
+        lokalny = lambda c: f"{c.astimezone():%Y-%m-%d %H:%M}"  # noqa: E731
+        self.assertTrue(n.startswith("**Uwaga:** zdarzenia agentów `sandbox`"))
+        self.assertIn(f"odczytano {lokalny(t0 + dt.timedelta(hours=1))}", n)           # UTC przeliczone na czas lokalny
+        self.assertIn(f"ostatnie zdarzenie: {lokalny(t0)}", n)
+        self.assertIn("jest 2 z 3 PR okna", n)
+        self.assertIn("1 z nich scalono po ostatnim", n)
+        self.assertIn("ostatnie zdarzenie: —", ef.notka_zdarzen("s", {}, [], od, do))
+
+    def test_sekcje_w_podsumowaniu(self):
+        """Całość przez `sygnaly.py`: źródło zdalne z plikami, GitHub fałszywy, tabela wyników i notka w podsumowaniu."""
+        self.zapisz_agentow()
+        subprocess.run(["git", "-C", str(self.repo), "remote", "add", "origin", "https://example.com/w/r.git"], check=True)
+        gh = Test030.falszywy_gh(self)
+        self.zaloz_konto()
+        ws = self.tmp / "ws"
+        teraz = dt.datetime.now(dt.timezone.utc)
+        (ws / "dane").mkdir(exist_ok=True)
+        (ws / "dane" / "z.json").write_text(json.dumps({
+            "zdarzenia": [], "agenci": {}, "meta": {"odczyt_utc": teraz.isoformat()}}), encoding="utf-8")
+        konf = json.loads((ws / "konfiguracja.json").read_text(encoding="utf-8"))
+        konf.update({"gh": gh, "zrodla_zdalne": [{"nazwa": "sandbox", "plik": "dane/brak.json", "zdarzenia_plik": "dane/z.json"}]})
+        (ws / "konfiguracja.json").write_text(json.dumps(konf), encoding="utf-8")
+        wczoraj = (dt.date.today() - dt.timedelta(days=1)).isoformat()
+        (ws / "metryki.csv").write_text(f"retro,okno_od,okno_od_godzina,okno_do\nR01,{wczoraj},00:00,{wczoraj}\n", encoding="utf-8")
+        wyjscie = self.tmp / "wyn"
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--wyjscie", str(wyjscie))
+        p = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("### Wyniki wobec poprzednich retro (tabela do zamknięcia retro)", p)
+        self.assertIn("| metryka | R01 | teraz | kierunek", p)
+        self.assertRegex(p, r"\| scalone PR \| 0\* \| 2\* \|")
+        self.assertIn("| model autora: Opus |", p)
+        self.assertIn("Samo okno retro", p)
+        self.assertIn("**Uwaga:** zdarzenia agentów `sandbox` odczytano", p)
+        self.assertIn("**okno retro**", p)
+        self.assertNotIn("Praca mogła przejść", p)                    # testowy koszt jest mały
+
+
 class Test060Caveman(Srodowisko):
     """0.6.0: pliki kontekstu w stylu caveman: lista, kontrola, kopia, rejestr, przywracanie."""
 

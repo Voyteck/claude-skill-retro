@@ -18,6 +18,10 @@ working days (recommended: every 2) the retro:
 5. **implements** the accepted changes in rules files (`CLAUDE.md`, memory, `nauki.md`), agent definitions
    (`.claude/agents`) and the commitments register.
 
+Since 0.7.0 the retro **closes with a results table in the chat**: cost and tokens, cost per merged PR, % of PRs with a fix,
+rounds per PR, split by author model, PR size and reasoning effort, against the previous 2–3 retros, with samples under
+5 PRs marked. The summary warns when a week's cost is high but tracked repos show few PRs (work may have moved).
+
 Since 0.6.0 the retro **manages agent definitions between retros**: it keeps a snapshot of every agent's model,
 reasoning effort, description and prompt after each retro (`agenci.csv`), shows each change with the PRs before and
 after it (count, share with a fix, cost per PR), shows task routing (who implements PRs of which size, unused agents)
