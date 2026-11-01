@@ -13,5 +13,7 @@ File names, configuration keys and CSV columns are Polish identifiers; the gloss
 | `zobowiazania.md` | commitments register: the backbone of continuity between retros |
 | `retro/RNN-YYYY-MM-DD.md` | successive retros; `**Status:** completed` resets the reminder counter |
 | `metryki.csv` | trend metrics, one row per retro |
+| `agenci.csv` | snapshot of the agent configuration after each retro: changes and their effect in the next retros |
+| `caveman.csv` | context files compressed caveman-style (level, tokens before and after) |
 | `nauki.md` | (account mode) cross-project lessons |
 | `dane/` | extracts from transcripts, **outside git** (session content) |

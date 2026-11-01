@@ -39,6 +39,31 @@ Source: the "Tokens and writing efficiency" section of the signals summary (mand
 - **Suggestions (2–3):** change · expected effect · measure (e.g. "implement size-S PRs on Sonnet · medium as long as
   the share of PRs with a fix does not grow by more than 10 percentage points and the cost per PR stays below Opus").
 
+**Agent changes: before and after** (from "Agent configuration changes and their effect"; the review of commitments
+of kind "agent configuration"):
+
+| agent · change (Z-NNN, retro) | baseline | after the change (PRs, % with a fix, cost per PR) | rollback condition | conclusion |
+|---|---|---|---|---|
+
+- Changes "since the last retro" (outside the retro): do they stay? If so, a new commitment with a baseline.
+
+**Task routing and agent descriptions** (from "Task routing"): who does PRs of which size, agents without runs,
+a built-in agent doing a custom agent's role. Change a `description` only with evidence of misrouting; one change per
+agent per retro.
+
+## 2b. Context files (caveman)
+
+Source: the "Context files (caveman)" section of the summary; rules: the plugin's `references/caveman.md`.
+
+| indicator | R(N-2) | R(N-1) | RN |
+|---|---|---|---|
+| `pliki_kontekstu_tokeny` | | | |
+| `caveman_do_kompresji_tokeny` | | | |
+| `kontekst_startowy_mediana` | | | |
+
+- **To compress (proposal):** groups of files (global, repo, memory) · ~tokens · level.
+- **After compression in earlier retros:** are the compressed rules kept as before (evidence), what to restore.
+
 ## 3. Commitments review
 
 | ID | commitment | kept | worth it | evidence | proposed verdict |
@@ -86,4 +111,6 @@ At most 5 new commitments; each one says what it replaces or shortens.
 
 - `zobowiazania.md`: …
 - rules: … (file, commit / PR)
+- agents: … (file, field, Z-NNN)
+- caveman: … (files, ~tokens before → after, `caveman.csv`)
 - proposed changes to the retro skill: …

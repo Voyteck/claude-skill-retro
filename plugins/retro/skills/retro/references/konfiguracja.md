@@ -30,6 +30,8 @@ defaults from `scripts/wspolne.py` (`DOMYSLNA_KONFIGURACJA`). Change it by hand 
 | `pr_max_commitow` | `40` | PRs with more commits are skipped (branch merges, batches) |
 | `pr_pomin_galezie` | `["integration/", "batch/"]` | head branch prefixes skipped in fix rounds (integration batches) |
 | `pr_progi_rozmiaru` | `[50, 300]` | PR size buckets in lines (additions + deletions): S up to the first, M up to the second, L above (since 0.4.0) |
+| `caveman` | `standard` | compression level of context files (since 0.6.0): `wyl` (off: sizes only), `lekki` (lite), `standard`, `ultra`; rules in `references/caveman.md` |
+| `caveman_pomin` | `[]` | files never proposed for compression: glob patterns matched against the path with `~` (e.g. `~/.claude/agents/*.md`, `*/memory/MEMORY.md`) or the file name |
 
 ## Glossary of identifiers
 
@@ -49,6 +51,9 @@ language (backward compatibility of existing working directories). Text inside t
 | `tryb` `konto` / `projekt` | mode: account / project |
 | `kalendarz` `PL` / `brak` | calendar: Polish holidays / none |
 | `wlasciciel`, `wiad_wlasciciela` | owner (the user), user's messages |
+| `agenci.csv`, `RNN-start` | snapshot of the agent configuration (after each retro; `-start` = the state at the retro's start when it differed) |
+| `caveman.csv`, `dane/caveman/RNN/` | register of compressed context files, backups before compression (outside git) |
+| `caveman` `wyl` / `lekki` / `standard` / `ultra` | compression level: off / lite / standard / ultra |
 | `pyt_*` | answers to AskUserQuestion: `rekomendowana` recommended, `inna` other option, `wlasna` own text, `odlozone` dismissed, `bez_wyboru` no preference, `fakt` fact question, `bez_rekomendacji` without a recommended option |
 | `koszt`, `kontekst`, `podagenci`, `wybudzenia`, `kompakty` | cost, context, subagents, wake-ups, compactions |
 | `commity_bez_sesji`, `pr_bez_sesji` | commits / PRs without a local session |

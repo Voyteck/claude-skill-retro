@@ -375,6 +375,122 @@ TEKSTY = {
                         "en": "### Current agent configuration (`.claude/agents`)"},
     "ef_agenci_kolumny": {"pl": "| agent | rola | model | poziom | źródło |", "en": "| agent | role | model | effort | source |"},
 
+    # agenci.py (od 0.6.0): migawka, zmiany konfiguracji i efekt, przydział zadań
+    "ag_kolumny": {"pl": "| agent | rola | model | poziom | źródło | starty w oknie | zmieniony | opis (`description`) |",
+                   "en": "| agent | role | model | effort | source | runs in window | changed | description |"},
+    "ag_zm_opis": {"pl": "opis", "en": "description"},
+    "ag_zm_tresc": {"pl": "treść (prompt)", "en": "body (prompt)"},
+    "ag_zm_nowy": {"pl": "nowy agent", "en": "new agent"},
+    "ag_zm_usuniety": {"pl": "usunięty", "en": "removed"},
+    "ag_przed_retro": {"pl": "poza retro (przed {retro})", "en": "outside retro (before {retro})"},
+    "ag_od_retro": {"pl": "od ostatniego retro", "en": "since the last retro"},
+    "ag_zmiany_tytul": {"pl": "### Zmiany konfiguracji agentów i ich efekt (przed → po)",
+                        "en": "### Agent configuration changes and their effect (before → after)"},
+    "ag_zmiany_pierwsza": {
+        "pl": "Brak `agenci.csv`: pierwsza migawka konfiguracji agentów powstanie przy `dopisz_metryki.py` na koniec tego "
+              "retro. Od następnego retro tabela pokaże zmiany i PR przed i po każdej z nich.",
+        "en": "No `agenci.csv`: the first snapshot of the agent configuration is written by `dopisz_metryki.py` at the end "
+              "of this retro. From the next retro this table shows changes and PRs before and after each of them."},
+    "ag_zmiany_brak": {"pl": "Bez zmian konfiguracji agentów w historii migawek i od ostatniego retro.",
+                       "en": "No agent configuration changes in the snapshot history or since the last retro."},
+    "ag_zmiany_opis": {
+        "pl": "Zmiany z `agenci.csv` (stan po każdym retro i, gdy inny, stan na jego starcie) oraz obecne pliki wobec "
+              "ostatniej migawki. Data = ostatni commit pliku (bez gita: modyfikacja). PR przypisany do strony po dacie "
+              "pierwszej pracy agenta na nim; dzień zmiany pominięty. Komórka: PR · % z poprawką · koszt agenta / koszt "
+              "całkowity na PR · rozmiary. Porównuj tylko przy podobnej mieszance rozmiarów; * = mniej niż {min_pr} PR "
+              "po stronie: wskazówka.",
+        "en": "Changes from `agenci.csv` (the state after each retro and, when different, at its start) and the current "
+              "files against the last snapshot. Date = the file's last commit (without git: modification). A PR goes to "
+              "a side by the date of the agent's first work on it; the day of the change is skipped. Cell: PRs · % with "
+              "a fix · agent cost / total cost per PR · sizes. Compare only with a similar size mix; * = fewer than "
+              "{min_pr} PRs on that side: a hint."},
+    "ag_zmiany_kolumny": {"pl": "| agent | kiedy | data | co | przed | po |",
+                          "en": "| agent | when | date | what | before | after |"},
+    "ag_poza_tabelami": {"pl": "starsza niż tabele (`efektywnosc_tygodnie`)",
+                         "en": "older than the tables (`efektywnosc_tygodnie`)"},
+    "ag_przydzial_tytul": {"pl": "### Przydział zadań (do strojenia opisów agentów)",
+                           "en": "### Task routing (for tuning agent descriptions)"},
+    "ag_przydzial_opis": {
+        "pl": "Kto implementował scalone PR z tabel wg rozmiaru: pierwszy implementator albo „sesja główna” (także praca "
+              "poza widocznymi transkrypcjami). Opis agenta (`description`) decyduje, jakie zadania dostaje; zmianę opisu "
+              "proponuj, gdy przydział nie zgadza się z regułami doboru (np. PR rozmiaru S u drogiego agenta, "
+              "implementacja w sesji głównej mimo agenta od tego, wbudowany agent w roli własnego).",
+        "en": "Who implemented the merged PRs from the tables, by size: the first implementer or \"main session\" (also "
+              "work outside the visible transcripts). An agent's `description` decides which tasks it gets; propose a "
+              "description change when routing does not match the selection rules (e.g. size-S PRs going to an "
+              "expensive agent, implementation in the main session although an agent exists for it, a built-in agent "
+              "doing a custom agent's role)."},
+    "ag_przydzial_kolumny": {"pl": "| rozmiar | wykonawca | PR | z poprawką |", "en": "| size | implementer | PRs | with a fix |"},
+    "ag_przydzial_brak": {"pl": "Brak scalonych PR (bez GitHuba albo `--bez-gh`).",
+                          "en": "No merged PRs (no GitHub or `--bez-gh`)."},
+    "ag_sesja_glowna": {"pl": "sesja główna", "en": "main session"},
+    "ag_starty_kolumny": {"pl": "| typ podagenta | rola | definicja | starty w oknie | z numerem PR | model · poziom |",
+                          "en": "| subagent type | role | definition | runs in window | with a PR number | model · effort |"},
+    "ag_def_wlasny": {"pl": "własna", "en": "custom"},
+    "ag_def_wbudowany": {"pl": "wbudowana", "en": "built-in"},
+    "ag_def_inny": {"pl": "brak tutaj (plugin, inna maszyna)", "en": "not here (plugin, another machine)"},
+    "ag_nieuzywane": {
+        "pl": "**Agenci bez startów w oknie:** {lista}. Opis za wąski, rola zbędna albo praca poza tą maszyną; zapytaj, "
+              "zanim zaproponujesz usunięcie.",
+        "en": "**Agents without runs in the window:** {lista}. Description too narrow, role not needed or work outside "
+              "this machine; ask before proposing removal."},
+    "ag_ograniczenia": {
+        "pl": "Migawka zapisuje pola z nagłówka pliku (alias modelu, nie wersję); rzeczywisty model jest w kolumnie "
+              "„model · poziom”. Zmiana modelu w routingu CLAUDE.md (bez pliku agenta) widać tylko w tabeli konfiguracji "
+              "implementatora. Ta sama zmiana dwóch pól naraz nie pozwala rozdzielić efektu.",
+        "en": "The snapshot stores the file header fields (model alias, not version); the actual model is in the "
+              "\"model · effort\" column. A model change in CLAUDE.md routing (without an agent file) shows only in the "
+              "implementer configuration table. Changing two fields at once does not allow separating the effect."},
+
+    # caveman.py (od 0.6.0): pliki kontekstu
+    "cv_tytul": {"pl": "## Pliki kontekstu (caveman)", "en": "## Context files (caveman)"},
+    "cv_opis": {
+        "pl": "Pliki .md ładowane do kontekstu sesji i podagentów (reguły, agenci, pamięć, `nauki.md`, własne skille "
+              "i polecenia), bez plików pluginów. Poziom kompresji z konfiguracji: **{poziom}** (`caveman`); zasady: "
+              "`references/caveman.md`. Tokeny ≈ znaki / 4. „Do kompresji” = nigdy nieskompresowane, zmienione po "
+              "kompresji albo skompresowane na innym poziomie.",
+        "en": "Markdown files loaded into the context of sessions and subagents (rules, agents, memory, `nauki.md`, "
+              "custom skills and commands), plugin files excluded. Compression level from the configuration: "
+              "**{poziom}** (`caveman`); rules: `references/caveman.md`. Tokens ≈ characters / 4. \"To compress\" = never "
+              "compressed, changed after compression or compressed at another level."},
+    "cv_wylaczone": {"pl": "Kompresja wyłączona (`caveman`: `wyl`); tylko rozmiary.",
+                     "en": "Compression off (`caveman`: `wyl`); sizes only."},
+    "cv_brak_plikow": {"pl": "Brak plików kontekstu.", "en": "No context files."},
+    "cv_kolumny_rodzaje": {"pl": "| rodzaj | pliki | ~tokeny | do kompresji | ~tokeny do kompresji |",
+                           "en": "| kind | files | ~tokens | to compress | ~tokens to compress |"},
+    "cv_kandydaci": {"pl": "Do kompresji, największe najpierw ({n} z {wszystkie}):",
+                     "en": "To compress, largest first ({n} of {wszystkie}):"},
+    "cv_kolumny_pliki": {"pl": "| plik | rodzaj | ~tokeny | stan |", "en": "| file | kind | ~tokens | state |"},
+    "cv_rodzaj_reguly": {"pl": "reguły (CLAUDE.md)", "en": "rules (CLAUDE.md)"},
+    "cv_rodzaj_agent": {"pl": "agenci", "en": "agents"},
+    "cv_rodzaj_skill": {"pl": "skille", "en": "skills"},
+    "cv_rodzaj_polecenie": {"pl": "polecenia", "en": "commands"},
+    "cv_rodzaj_pamiec": {"pl": "pamięć", "en": "memory"},
+    "cv_rodzaj_nauki": {"pl": "nauki.md", "en": "nauki.md"},
+    "cv_stan_nieskompresowany": {"pl": "nieskompresowany", "en": "not compressed"},
+    "cv_stan_zmieniony": {"pl": "zmieniony po kompresji ({retro})", "en": "changed after compression ({retro})"},
+    "cv_stan_inny_poziom": {"pl": "inny poziom ({retro})", "en": "another level ({retro})"},
+    "cv_stan_skompresowany": {"pl": "skompresowany ({retro})", "en": "compressed ({retro})"},
+    "cv_b_yaml": {"pl": "nagłówek YAML zmieniony (musi zostać bez zmian)", "en": "YAML header changed (must stay as is)"},
+    "cv_b_kod": {"pl": "bloki kodu zmienione (muszą zostać bez zmian)", "en": "code blocks changed (must stay as is)"},
+    "cv_b_inline": {"pl": "zgubiony kod w linii: {lista}", "en": "inline code lost: {lista}"},
+    "cv_b_url": {"pl": "zgubione adresy: {lista}", "en": "URLs lost: {lista}"},
+    "cv_b_naglowki": {"pl": "nagłówki zmienione (liczba, poziom albo treść)", "en": "headings changed (count, level or text)"},
+    "cv_b_tabele": {"pl": "wiersze tabel: przed {przed}, po {po}", "en": "table rows: before {przed}, after {po}"},
+    "cv_b_liczby": {"pl": "zgubione liczby: {lista}", "en": "numbers lost: {lista}"},
+    "cv_b_ident": {"pl": "zgubione identyfikatory: {lista}", "en": "identifiers lost: {lista}"},
+    "cv_b_sciezki": {"pl": "zgubione ścieżki: {lista}", "en": "paths lost: {lista}"},
+    "cv_b_krzyk": {"pl": "zgubione słowa wielkimi literami: {lista}", "en": "upper-case words lost: {lista}"},
+    "cv_o_przeczenia": {"pl": "mniej przeczeń: {przed} → {po}; sprawdź, czy żaden zakaz nie zginął",
+                        "en": "fewer negations: {przed} → {po}; check that no prohibition was lost"},
+    "cv_o_dluzszy": {"pl": "plik nie jest krótszy", "en": "the file is not shorter"},
+    "cv_brak_pliku": {"pl": "brak pliku", "en": "file not found"},
+    "cv_brak_kopii": {"pl": "brak kopii z {retro}: najpierw `caveman.py kopia`",
+                      "en": "no backup from {retro}: run `caveman.py kopia` first"},
+    "cv_brak_listy": {"pl": "Brak dane/sygnaly-*/pliki-kontekstu.json: uruchom najpierw sygnaly.py.",
+                      "en": "No dane/sygnaly-*/pliki-kontekstu.json: run sygnaly.py first."},
+    "cv_brak_argumentow": {"pl": "Podaj --retro i pliki.", "en": "Pass --retro and the files."},
+
     # sygnaly.py: podsumowanie
     "brak_katalogu": {
         "pl": "Nie znaleziono katalogu roboczego retro. Załóż go skryptem zaloz.py --tryb konto|projekt (patrz SKILL.md).",

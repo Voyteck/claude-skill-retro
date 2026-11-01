@@ -16,10 +16,18 @@ użytkownika. Zasady statusów i limitów: skill `retro` (plugin `retro`), `SKIL
 - **Mechanizm:** co pilnuje przestrzegania (test, hook, ochrona gałęzi, szablon) albo „brak: reguła w tekście”
 - **Sygnał przestrzegania:** co w sygnałach, transkrypcji, gicie albo GitHubie świadczy o przestrzeganiu lub złamaniu
 - **Miara sensu:** jaki efekt ma dać; kiedy uznamy, że go nie daje
-- **Zapisane w:** plik reguł / pamięć / nauki.md
+- **Zapisane w:** plik reguł / pamięć / nauki.md / `.claude/agents/<nazwa>.md`
 
 | retro | przestrzegane | sens | werdykt | dowody |
 |---|---|---|---|---|
+```
+
+Zobowiązanie rodzaju **konfiguracja agenta** (zmiana modelu, poziomu rozumowania, opisu albo promptu agenta) ma też:
+
+```
+- **Rodzaj:** konfiguracja agenta · **Agent:** <nazwa> (`<plik>`) · **Zmiana:** <pole> <przed> → <po>
+- **Punkt odniesienia:** RNN: <PR>, <% z poprawką>, <koszt na PR>, rozmiar <S/M/L>
+- **Warunek wycofania:** np. „% z poprawką +10 pkt proc. lub więcej przy ≥ 5 PR po zmianie → powrót do <przed>”
 ```
 
 ## Aktywne

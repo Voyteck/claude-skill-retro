@@ -77,6 +77,11 @@ Columns since 0.1.3 (in `metryki.csv` at the end, after `zobowiazania_aktywne`; 
 | `odrzucenia_wg_przyczyny`, `niepowodzenia_wg_przyczyny` (since 0.5.0) | refusals and failures by cause, `klasyfikator:3;worktree:2` | causes in "Tool calls: refused and failed" |
 | `chmura_koszt_usd`, `chmura_sesje`, `chmura_nowe` (since 0.5.0) | cloud sessions' cost in the window from `--chmura`, how many sessions, how many read for the first time | empty without `--chmura`; first readings may include cost from before the window |
 | `plan_uzyty_proc`, `koszt_na_10proc_planu`, `wiad_na_10proc_planu`, `pr_scalone_na_10proc_planu` (since 0.5.0) | the share of the plan the window used (`--plan-uzyty`) and cost (local + cloud), owner messages and merged PRs per 10% of the plan | the only totals that compare between windows of different lengths |
+| `agenci_zdefiniowani`, `agenci_nieuzywani` (since 0.6.0) | agent definitions in `.claude/agents` of the window's repositories and `~/.claude/agents`; those without a run in the window | an unused agent: description too narrow, role not needed or work on another machine |
+| `agenci_zmiany_od_retro` (since 0.6.0) | agent files that differ from the last snapshot in `agenci.csv` | changes made outside the retro (or waiting in a PR at the last snapshot) |
+| `pr_bez_agenta_proc` (since 0.6.0) | share of PRs merged in the window without an implementation subagent | main session or work outside the visible transcripts; empty without `gh` |
+| `pliki_kontekstu`, `pliki_kontekstu_tokeny` (since 0.6.0) | context files (rules, agents, memory, `nauki.md`, custom skills and commands) and their size in characters / 4 | plugin files excluded; compared with previous retros (more = worse) |
+| `caveman_do_kompresji`, `caveman_do_kompresji_tokeny` (since 0.6.0) | those not compressed at the configured level (never, changed after compression, another level) | empty with `caveman`: `wyl` |
 
 ## Tool calls, cloud sessions and the plan (since 0.5.0)
 
@@ -141,6 +146,17 @@ section 2a of the retro document.
   session ("main session" row) has quality and control cost only. The section also lists the current agent
   definitions from `.claude/agents/*.md` of the window's repositories and `~/.claude/agents` (`name`, `model`,
   `effort` from the header) with their role, so a proposed rule can name the file to change.
+- **Agents between retros (since 0.6.0):** `agenci.py`. The current definitions (header `name`, `model`, `effort`,
+  `description`; a hash of the description and of the body; the date of the file's last commit, without git its
+  modification) are compared with the snapshot `agenci.csv`, which `dopisz_metryki.py` writes at the end of every
+  retro: the state after the retro's changes (`RNN`) and, when it differs from the last row (or, for an agent without
+  rows, from the state after the retro), the state at its start (`RNN-start`, from `agenci.json` of the signals). A
+  difference between consecutive rows of an agent is a change; a difference between the last row and the file now is
+  a change "since the last retro". Effect: the PRs the agent worked on (by subagent type = agent name, also
+  `plugin:name`), split by the date of the agent's first work on the PR into before and after the change; the day of
+  the change is skipped. Only changes newer than the start of the tables (`efektywnosc_tygodnie`) have the effect.
+  Task routing: the first implementer of each merged PR (else "main session") by size, and runs by subagent type in
+  the window (custom definition, built-in, not here).
 - **Limits:** a round is not always a return from the tester (rebase, conflicts of integration batches, the owner's
   remarks); a missing trailer makes the author "no trailer"; verdicts and CI results are a heuristic on free text and
   the role of an agent depends on its type name; a main session that implements and fixes by itself has no returns

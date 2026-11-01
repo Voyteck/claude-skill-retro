@@ -29,6 +29,8 @@ import wspolne  # noqa: E402
 import teksty  # noqa: E402
 import tokeny  # noqa: E402
 import efektywnosc  # noqa: E402
+import agenci  # noqa: E402
+import caveman  # noqa: E402
 import zdarzenia_agentow  # noqa: E402
 from teksty import t  # noqa: E402
 from tokeny import (PROG_DUZEGO_KONTEKSTU, PROG_WYBUDZENIA_H, PROG_WYBUDZENIA_TOKENY,  # noqa: E402,F401
@@ -1040,7 +1042,8 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
                        projekty):
     """Dane sekcji „Tokeny i efektywność pisania”: koszt wg roli i poziomu rozumowania (z archiwów trendu), rundy
     poprawek scalonych PR (GitHub, kilka tygodni wstecz), powroty od przeglądu i CI oraz koszt agentów na PR
-    (zdarzenia agentów lokalnie i ze źródeł zdalnych), konfiguracja agentów z `.claude/agents`."""
+    (zdarzenia agentów lokalnie i ze źródeł zdalnych), konfiguracja agentów z `.claude/agents`, ich zmiany między
+    retro (`agenci.csv`) z efektem przed i po oraz przydział zadań (od 0.6.0)."""
     wzorce, uwagi = efektywnosc.wzorce_rol(konf), []
     tygodnie = int(konf.get("efektywnosc_tygodnie") or efektywnosc.TYGODNIE)
     od_tygodnia = min(tokeny.poniedzialek(do_data) - dt.timedelta(weeks=tygodnie - 1), tokeny.poniedzialek(od_data))
@@ -1093,8 +1096,15 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
         polaczone = efektywnosc.polacz_pr(rundy, efektywnosc.koszty_pr(zdarzenia_zrodel, wzorce, cennik))
     katalogi_agentow = [(nazwa, pathlib.Path(sciezka) / ".claude" / "agents") for nazwa, sciezka in repozytoria.items()]
     katalogi_agentow.append(("~/.claude", wspolne.katalog_claude() / "agents"))
+    definicje = agenci.wczytaj_definicje(katalogi_agentow)
+    migawki = agenci.wczytaj_migawki(katalog / agenci.PLIK_MIGAWKI) if katalog is not None else []
+    zmiany = agenci.zmiany(migawki, definicje)
+    starty = agenci.starty([d for d, _ in zdarzenia_zrodel], od, do)
     return {"wzorce": wzorce, "koszty": koszty, "rundy": rundy, "powroty": powroty, "uwagi": uwagi,
-            "polaczone": polaczone, "agenci_konf": efektywnosc.konfiguracja_agentow(katalogi_agentow)}
+            "polaczone": polaczone, "katalogi_agentow": katalogi_agentow, "definicje": definicje,
+            "migawki": bool(migawki), "zmiany": zmiany, "starty": starty,
+            "efekty": agenci.efekt_zmian(zmiany, polaczone, od_tygodnia, konf.get("pr_progi_rozmiaru")),
+            "przydzial": agenci.przydzial_pr(polaczone, konf.get("pr_progi_rozmiaru"))}
 
 
 def nazwa_pliku(nazwa: str) -> str:
@@ -1243,6 +1253,11 @@ def main(argv=None):
     ef = efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh, sesje, od, do, od_data, do_data,
                             projekty)
     narzedzia = wyniki_narzedzi(sesje)
+    kontekst = caveman.opisz(caveman.pliki_kontekstu(regul, repozytoria, foldery, katalog, konf), katalog, konf)
+    (wyjscie / caveman.PLIK_LISTY).write_text(json.dumps(kontekst, ensure_ascii=False, indent=2), encoding="utf-8")
+    (wyjscie / "agenci.json").write_text(json.dumps(
+        {"katalogi": [[z, str(k)] for z, k in ef["katalogi_agentow"]], "definicje": ef["definicje"]},
+        ensure_ascii=False, indent=2), encoding="utf-8")
     chmura, chmura_uwaga = None, None
     if a.chmura:
         try:
@@ -1297,6 +1312,9 @@ def main(argv=None):
         "chmura_sesje": len(chmura["sesje"]) if chmura else None,
         "chmura_nowe": chmura["nowe"] if chmura else None,
         "plan_uzyty_proc": a.plan_uzyty,
+        # od 0.6.0: agenci między retro i pliki kontekstu (caveman); koszt na 10% planu dopisany niżej
+        **agenci.metryki_okna(ef["definicje"], ef["zmiany"], ef["starty"], ef["polaczone"], od, do),
+        **caveman.metryki(kontekst, konf),
     }
     if a.plan_uzyty:
         skala = 10 / a.plan_uzyty
@@ -1351,8 +1369,10 @@ def main(argv=None):
     porown = efektywnosc.porownanie(katalog / "metryki.csv", metryki) if katalog is not None else ([], [])
     l += efektywnosc.raport(porown, ef["koszty"], ef["rundy"], od, do, ef["powroty"], ef["uwagi"],
                             przerwa=konf.get("pr_przerwa_rundy_min") or efektywnosc.PRZERWA_RUNDY_MIN,
-                            polaczone=ef["polaczone"], agenci_konf=ef["agenci_konf"], wzorce=ef["wzorce"],
-                            progi=konf.get("pr_progi_rozmiaru"))
+                            polaczone=ef["polaczone"], wzorce=ef["wzorce"], progi=konf.get("pr_progi_rozmiaru"))
+    l += agenci.raport(ef["definicje"], ef["wzorce"], ef["zmiany"], ef["efekty"], ef["przydzial"], ef["starty"],
+                       ef["migawki"])
+    l += caveman.raport(kontekst, konf)
     l += ["", t("pods_repo"), "", t("pods_repo_kolumny"),
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for nazwa, r in repo.items():

@@ -16,10 +16,18 @@ rules and limits: skill `retro` (plugin `retro`), `SKILL.md`, sections “Step 3
 - **Mechanism:** what enforces it (test, hook, branch protection, template) or “none: text-only rule”
 - **Compliance signal:** what in the signals, transcripts, git or GitHub shows it was kept or broken
 - **Measure of value:** what effect it should have; when we decide it does not
-- **Recorded in:** rules file / memory / nauki.md
+- **Recorded in:** rules file / memory / nauki.md / `.claude/agents/<name>.md`
 
 | retro | kept | worth it | verdict | evidence |
 |---|---|---|---|---|
+```
+
+An **agent configuration** commitment (a change of an agent's model, effort, description or prompt) also has:
+
+```
+- **Kind:** agent configuration · **Agent:** <name> (`<file>`) · **Change:** <field> <before> → <after>
+- **Baseline:** RNN: <PRs>, <% with a fix>, <cost per PR>, size <S/M/L>
+- **Rollback condition:** e.g. “% with a fix +10 points or more with ≥ 5 PRs after the change → back to <before>”
 ```
 
 ## Active

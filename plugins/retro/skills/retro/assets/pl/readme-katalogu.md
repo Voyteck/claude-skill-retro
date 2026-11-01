@@ -10,5 +10,7 @@ tutaj są tylko wyniki i stan między retro. Retro uruchamia `/retro` (pełna na
 | `zobowiazania.md` | rejestr zobowiązań: kręgosłup ciągłości między retro |
 | `retro/RNN-RRRR-MM-DD.md` | kolejne retro; `**Status:** zakończone` resetuje licznik przypomnienia |
 | `metryki.csv` | metryki trendu, wiersz na retro |
+| `agenci.csv` | migawka konfiguracji agentów po każdym retro: zmiany i ich efekt w następnych retro |
+| `caveman.csv` | pliki kontekstu skompresowane w stylu caveman (poziom, tokeny przed i po) |
 | `nauki.md` | (tryb konta) wiedza dotycząca więcej niż jednego projektu |
 | `dane/` | wyciągi z transkrypcji, **poza gitem** (treść sesji) |

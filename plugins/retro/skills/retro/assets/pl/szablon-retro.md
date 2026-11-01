@@ -38,6 +38,31 @@
 - **Sugestie (2–3):** zmiana · oczekiwany efekt · miara (np. „implementacja PR rozmiaru S na Sonnecie · medium,
   dopóki odsetek PR z poprawką nie wzrośnie o więcej niż 10 pkt proc., a koszt na PR jest niższy niż na Opusie”).
 
+**Zmiany agentów: przed i po** (z sekcji „Zmiany konfiguracji agentów i ich efekt”; rozliczenie zobowiązań rodzaju
+„konfiguracja agenta”):
+
+| agent · zmiana (Z-NNN, retro) | punkt odniesienia | po zmianie (PR, % z poprawką, koszt na PR) | warunek wycofania | wniosek |
+|---|---|---|---|---|
+
+- Zmiany „od ostatniego retro” (poza retro): zostaje? jeśli tak, nowe zobowiązanie z punktem odniesienia.
+
+**Przydział zadań i opisy agentów** (z sekcji „Przydział zadań”): kto robi PR jakiego rozmiaru, agenci bez startów,
+wbudowany agent w roli własnego. Zmiana opisu (`description`) tylko z dowodem złego przydziału; jedna zmiana na agenta
+na retro.
+
+## 2b. Pliki kontekstu (caveman)
+
+Źródło: sekcja „Pliki kontekstu (caveman)” podsumowania; zasady: `references/caveman.md` pluginu.
+
+| wskaźnik | R(N-2) | R(N-1) | RN |
+|---|---|---|---|
+| `pliki_kontekstu_tokeny` | | | |
+| `caveman_do_kompresji_tokeny` | | | |
+| `kontekst_startowy_mediana` | | | |
+
+- **Do kompresji (propozycja):** grupy plików (globalne, repo, pamięć) · ~tokeny · poziom.
+- **Po kompresji w poprzednich retro:** czy skompresowane reguły są przestrzegane jak przedtem (dowody), co przywrócić.
+
 ## 3. Rozliczenie zobowiązań
 
 | ID | zobowiązanie | przestrzegane | sens | dowody | proponowany werdykt |
@@ -85,4 +110,6 @@ Najwyżej 5 nowych zobowiązań; każda mówi, co zastępuje lub skraca.
 
 - `zobowiazania.md`: …
 - reguły: … (plik, commit / PR)
+- agenci: … (plik, pole, Z-NNN)
+- caveman: … (pliki, ~tokeny przed → po, `caveman.csv`)
 - propozycje zmian skillu retro: …
