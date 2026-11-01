@@ -40,6 +40,9 @@ POPRZEDNIE_RETRO = 3
 PROGI_ROZMIARU = [50, 300]
 # Konfiguracja implementatora ma wynik, a nie tylko wskazówkę, od tylu PR w komórce tabeli.
 MIN_PR = 5
+# Ostrzeżenie o możliwej zmianie repo pracy: koszt tygodnia od tej kwoty (USD; pole `ostrzezenie_koszt_tygodnia_usd`),
+# a PR brak albo koszt na PR tyle razy powyżej mediany innych tygodni.
+PROG_KOSZTU_TYGODNIA, KROTNOSC_KOSZTU_NA_PR = 100, 3
 ZAPYTANIE_PR = """
 query($q: String!, $po: String) {
   search(query: $q, type: ISSUE, first: 40, after: $po) {
@@ -97,20 +100,39 @@ def koszt_wg_roli(calls: dict, cennik: dict, wzorce: list, od_tygodnia: dt.date)
     i {tydzień: USD}. Ceny bieżących modeli rodziny (jak `koszt_api_usd_ceny_55`), żeby zmiana cennika nie udawała
     zmiany pracy. Poziom None = wywołanie bez zapisanego poziomu (starsze transkrypcje)."""
     tab, sumy = collections.defaultdict(float), collections.defaultdict(float)
+    for x in rekordy_kosztu(calls, cennik, wzorce):
+        tydz = tokeny.poniedzialek(x["czas"])
+        if tydz < od_tygodnia:
+            continue
+        tab[(tydz, *x["klucz"])] += x["koszt"]
+        sumy[tydz] += x["koszt"]
+    return tab, sumy
+
+
+def rekordy_kosztu(calls: dict, cennik: dict, wzorce: list) -> list:
+    """Wywołania archiwum z kosztem w cenach bieżących modeli rodziny: wspólna definicja tygodni i okien."""
+    wynik = []
     for r in calls.values():
         w = tokeny.z_rekordu(r)
         if not w["czas"]:
             continue
-        tydz = tokeny.poniedzialek(w["czas"])
-        if tydz < od_tygodnia:
-            continue
         c = tokeny.czesci_kosztu(w, cennik, tokeny.model_biezacy(w["model"], cennik))
         if not c:
             continue
-        k = sum(c.values())
-        tab[(tydz, rola(r.get("sub"), r.get("agent"), wzorce), rodzina(w["model"]), w.get("effort"))] += k
-        sumy[tydz] += k
-    return tab, sumy
+        bez_odczytu = w["wejscie"] + w["wyjscie"] + w["zapis_5m"] + w["zapis_1h"]
+        wynik.append({"czas": w["czas"], "koszt": sum(c.values()), "tokeny": bez_odczytu + w["odczyt"],
+                      "bez_odczytu": bez_odczytu, "poziom": w.get("effort"),
+                      "klucz": (rola(r.get("sub"), r.get("agent"), wzorce), rodzina(w["model"]), w.get("effort"))})
+    return wynik
+
+
+def koszt_okna(rekordy: list, od, do) -> collections.Counter:
+    """{(rola, rodzina, poziom): USD} dla rekordów okna [od, do), liczone jak kolumny tygodni."""
+    wynik = collections.Counter()
+    for x in rekordy:
+        if od <= x["czas"] < do:
+            wynik[x["klucz"]] += x["koszt"]
+    return wynik
 
 
 def koszt_implementacji_wg_modelu(wywolania: list, wzorce: list):
@@ -392,16 +414,23 @@ def liczba(x):
         return None
 
 
-def porownanie(plik_csv: pathlib.Path, metryki: dict, n: int = POPRZEDNIE_RETRO):
-    """([etykiety poprzednich retro], [(metryka, [wartości], teraz, kierunek)]) z ostatnich `n` wierszy `metryki.csv`
-    (bez wiersza tego samego okna, gdy skrypt uruchomiono ponownie po dopisaniu metryk)."""
+def poprzednie_wiersze(plik_csv: pathlib.Path, metryki: dict, n: int = POPRZEDNIE_RETRO):
+    """Ostatnie `n` wierszy `metryki.csv` bez wiersza tego samego okna (gdy skrypt uruchomiono ponownie po dopisaniu
+    metryk); None, gdy pliku nie ma."""
     try:
         with plik_csv.open(encoding="utf-8", newline="") as f:
             wiersze = list(csv.DictReader(f))
     except OSError:
-        return [], []
+        return None
     okno = lambda w: (w.get("okno_od") or "", w.get("okno_od_godzina") or "")  # noqa: E731
-    wiersze = [w for w in wiersze if okno(w) != okno(metryki)][-n:]
+    return [w for w in wiersze if okno(w) != okno(metryki)][-n:]
+
+
+def porownanie(plik_csv: pathlib.Path, metryki: dict, n: int = POPRZEDNIE_RETRO):
+    """([etykiety poprzednich retro], [(metryka, [wartości], teraz, kierunek)]) z ostatnich `n` wierszy `metryki.csv`."""
+    wiersze = poprzednie_wiersze(plik_csv, metryki, n)
+    if wiersze is None:
+        return [], []
     wynik = []
     for kol in POROWNANIE:
         wartosci = [liczba(w.get(kol)) for w in wiersze]
@@ -427,11 +456,14 @@ def fmt_usd(v) -> str:
     return f"{v:.0f}" if v >= 10 else f"{v:.2f}"
 
 
-def raport_konfiguracji(polaczone: list, agenci_konf: list, wzorce: list, progi=None) -> list:
-    """Koszt i jakość na PR wg konfiguracji implementatora (model · poziom rozumowania) i rozmiaru PR oraz obecna
-    konfiguracja agentów z `.claude/agents`."""
-    progi = progi or PROGI_ROZMIARU
-    l = ["", t("ef_konf_tytul"), "", t("ef_konf_opis", s=progi[0], m=progi[1], min_pr=MIN_PR), ""]
+def w_oknie(rundy, od, do) -> list:
+    """PR scalone w oknie [od, do): jedyna definicja wiersza okna, tabel okna i `metryki.csv`."""
+    return [r for r in rundy or [] if od <= r["scalony"] < do]
+
+
+def tabela_konfiguracji_wiersze(polaczone: list, progi) -> list:
+    """Tabela koszt i jakość na PR dla podanych PR, z liczbą PR bez przypisanej pracy agentów."""
+    l = []
     grupy = tabela_konfiguracji(polaczone, progi)
     if not grupy:
         l.append(t("ef_konf_brak"))
@@ -449,6 +481,18 @@ def raport_konfiguracji(polaczone: list, agenci_konf: list, wzorce: list, progi=
     bez = sum(1 for r in polaczone if r["pr_koszt"] is None)
     if polaczone:
         l += ["", t("ef_konf_bez_kosztu", bez=bez, wszystkie=len(polaczone))]
+    return l
+
+
+def raport_konfiguracji(polaczone: list, agenci_konf: list, wzorce: list, progi=None, od=None, do=None) -> list:
+    """Koszt i jakość na PR wg konfiguracji implementatora (model · poziom rozumowania) i rozmiaru PR, z kilku tygodni
+    i osobno z samego okna retro (gdy podano `od`, `do`), oraz obecna konfiguracja agentów z `.claude/agents`."""
+    progi = progi or PROGI_ROZMIARU
+    l = ["", t("ef_konf_tytul"), "", t("ef_konf_opis", s=progi[0], m=progi[1], min_pr=MIN_PR), ""]
+    l += tabela_konfiguracji_wiersze(polaczone, progi)
+    if od is not None:
+        l += ["", t("ef_konf_okno", od=f"{od:%m-%d %H:%M}", do=f"{do - dt.timedelta(days=1):%m-%d}"), ""]
+        l += tabela_konfiguracji_wiersze(w_oknie(polaczone, od, do), progi)
     if agenci_konf:
         l += ["", t("ef_agenci_tytul"), "", t("ef_agenci_kolumny"), "|---|---|---|---|---|"]
         l += [f"| {nazwa} | {etykieta_roli(rola(True, nazwa, wzorce))} | {model} | {poziom or '—'} | {zrodlo} |"
@@ -456,16 +500,176 @@ def raport_konfiguracji(polaczone: list, agenci_konf: list, wzorce: list, progi=
     return l
 
 
+def ostrzezenia_repo(koszty: list, rundy, repozytoria: list, dzis: dt.date = None,
+                     prog_usd: float = PROG_KOSZTU_TYGODNIA, od: dt.date = None) -> list:
+    """Tygodnie o wysokim koszcie i małej liczbie PR w śledzonych repo: praca mogła przejść do repo spoza retro, a
+    wtedy % z poprawką i koszt na PR opisują nie to repo. Tylko tygodnie od `od` (początek okna), żeby stary tydzień
+    nie wracał w każdym retro. Bez danych z GitHuba (`rundy` None) nie ma ostrzeżeń."""
+    if rundy is None:
+        return []
+    dzis = dzis or dt.date.today()
+    sumy = collections.Counter()
+    for _, _, s in koszty:
+        sumy.update(s)
+    if not sumy:
+        return []
+    pr = collections.Counter(r["tydzien"] for r in rundy)
+    na_pr = {w: sumy[w] / pr[w] for w in sumy if pr[w]}
+    wynik = []
+    for w in sorted(sumy):
+        if sumy[w] < prog_usd or (od and w + dt.timedelta(days=6) < od):
+            continue
+        inne = [v for x, v in na_pr.items() if x != w]
+        if not pr[w] or (inne and na_pr[w] >= KROTNOSC_KOSZTU_NA_PR * statistics.median(inne)) \
+                or (not inne and pr[w] < MIN_PR):
+            wynik.append(t("ef_zmiana_repo", tydzien=w.isoformat() + (t("ef_niezak") if w + dt.timedelta(days=6) >= dzis else ""),
+                           koszt=fmt_usd(sumy[w]), pr=pr[w], repo=", ".join(f"`{r}`" for r in repozytoria) or "—"))
+    return wynik
+
+
+def notka_zdarzen(nazwa: str, dane: dict, polaczone, od, do) -> str:
+    """Data odczytu i ostatniego zdarzenia źródła zdalnego oraz ile PR okna nie ma implementatora, także dlatego, że
+    scalono je po ostatnim zdarzeniu: zdarzenia kończą się w chwili odczytu, a metryka `pr_bez_agenta_proc` tego nie widzi."""
+    pokaz = lambda c: f"{c:%Y-%m-%d %H:%M}" if c else "—"  # noqa: E731
+    czasy = [tokeny.czas_lokalny(x.get("ts") or "") for x in (dane.get("zdarzenia") or [])]
+    czasy += [tokeny.czas_lokalny(x.get("ts") or "") for x in (dane.get("agenci") or {}).values()]
+    ostatnie = max((c for c in czasy if c), default=None)
+    bez = [r for r in w_oknie(polaczone, od, do) if not r.get("pr_impl")]
+    po = sum(1 for r in bez if ostatnie is None or r["scalony"] > ostatnie)
+    return t("ef_zdarzenia_odczyt", nazwa=nazwa, ostatnie=pokaz(ostatnie),
+             odczyt=pokaz(tokeny.czas_lokalny((dane.get("meta") or {}).get("odczyt_utc") or "")),
+             bez=len(bez), wszystkie=len(w_oknie(polaczone, od, do)), po=po)
+
+
+def okna_retro(plik_csv, metryki: dict, od, do, n: int = POPRZEDNIE_RETRO) -> list:
+    """[(etykieta, od, do, chmura USD)] poprzednich retro z `metryki.csv` i okno bieżące na końcu. Okno kończy się
+    najpóźniej tam, gdzie zaczyna się następne, żeby dzień retro nie liczył się dwa razy."""
+    wiersze = poprzednie_wiersze(plik_csv, metryki, n) if plik_csv is not None else None
+    wynik = []
+    for w in wiersze or []:
+        try:
+            poczatek = dt.datetime.fromisoformat(f"{w.get('okno_od')}T{w.get('okno_od_godzina') or '00:00'}").astimezone()
+            koniec = dt.datetime.combine(dt.date.fromisoformat(w.get("okno_do") or ""), dt.time()).astimezone()
+        except (TypeError, ValueError):
+            continue
+        wynik.append([w.get("retro") or "?", poczatek, koniec + dt.timedelta(days=1), liczba(w.get("chmura_koszt_usd"))])
+    wynik.append([t("ef_teraz"), od, do, liczba(metryki.get("chmura_koszt_usd"))])
+    for a, b in zip(wynik, wynik[1:]):
+        a[2] = min(a[2], b[1])
+    return [tuple(w) for w in wynik]
+
+
+def komorka_pr(lista: list, z_kosztem: bool = False) -> str:
+    """„12 PR · 33% · 0.5” (PR, % z poprawką, rund na PR); „3* PR”, gdy próba mniejsza niż MIN_PR."""
+    if not lista:
+        return "—"
+    o = opis_pr(lista)
+    s = f"{o['pr']}{'' if o['pr'] >= MIN_PR else '*'} PR · {o['z_poprawka']:g}% · {fmt(o['rundy'])}"
+    if z_kosztem:
+        s += f" · ${opis_konfiguracji(lista)['na_pr']:.2f}"
+    return s
+
+
+def raport_wynikow(okna: list, rekordy: list, rundy, polaczone, od_tygodnia: dt.date, progi=None) -> list:
+    """Tabela wyników do zamknięcia retro (krok 6): każde okno z `okna_retro` policzone dziś tą samą definicją, z
+    archiwów kosztu (`rekordy`: [(źródło, `rekordy_kosztu`)]) i scalonych PR. Okno starsze niż początek tabel
+    (`od_tygodnia`) nie ma danych PR („—”). Wartość z mniej niż MIN_PR PR ma gwiazdkę."""
+    progi = progi or PROGI_ROZMIARU
+    dane = []
+    for _, od, do, _ in okna:
+        wg_zrodla = {nazwa: [x for x in lista if od <= x["czas"] < do] for nazwa, lista in rekordy}
+        wszystkie = [x for lista in wg_zrodla.values() for x in lista]
+        pokryte = rundy is not None and od.date() >= od_tygodnia
+        poziomy = collections.Counter()
+        for x in wszystkie:
+            poziomy[x["poziom"]] += x["koszt"]
+        dane.append({"koszt": sum(x["koszt"] for x in wszystkie),
+                     "wg_zrodla": {nazwa: sum(x["koszt"] for x in lista) for nazwa, lista in wg_zrodla.items()},
+                     "tokeny": sum(x["tokeny"] for x in wszystkie), "bez_odczytu": sum(x["bez_odczytu"] for x in wszystkie),
+                     "poziomy": poziomy, "pr": w_oknie(rundy, od, do) if pokryte else None,
+                     "polaczone": w_oknie(polaczone, od, do) if pokryte and polaczone is not None else None})
+    gw = lambda d: "" if d["pr"] is not None and len(d["pr"]) >= MIN_PR else "*"  # noqa: E731
+
+    def wskaznik(d):
+        """(koszt na scalony PR, % z poprawką, rund na PR) albo Nones, gdy okno nie ma PR."""
+        if not d["pr"]:
+            return None, None, None
+        o = opis_pr(d["pr"])
+        return d["koszt"] / o["pr"] if rekordy else None, o["z_poprawka"], o["rundy"]
+
+    def kierunek(i):
+        teraz = dane[-1]
+        wartosc = wskaznik(teraz)[i]
+        wczesniej = [wskaznik(d)[i] for d in dane[:-1] if d["pr"] and not gw(d)]
+        if gw(teraz) or wartosc is None or not wczesniej:
+            return "—"
+        strz = tokeny.strzalka(statistics.median(wczesniej), wartosc)
+        return {"↑": f"**{t('kier_gorzej')}**", "↓": t("kier_lepiej"), "≈": "≈"}.get(strz, "—")
+
+    naglowki = [o[0] for o in okna]
+    l = ["", t("ef_wyn_tytul"), "", t("ef_wyn_opis", min_pr=MIN_PR), "",
+         f"| {t('ef_metryka')} | " + " | ".join(naglowki) + f" | {t('ef_wyn_kierunek')} |",
+         "|---|" + "---|" * (len(okna) + 1)]
+
+    def wiersz(etykieta, komorki, kier="—"):
+        l.append(f"| {etykieta} | " + " | ".join(komorki) + f" | {kier} |")
+
+    wiersz(t("ef_wyn_okno"), [f"{o[1]:%m-%d %H:%M} … {o[2] - dt.timedelta(minutes=1):%m-%d}" for o in okna])
+    wiersz(t("ef_wyn_koszt"), [f"${d['koszt']:.0f}" if rekordy else "—" for d in dane])     # bez archiwów nieznany, nie 0
+    if len(rekordy) > 1:
+        for nazwa, _ in rekordy:
+            wiersz(f"· `{nazwa}`", [f"${d['wg_zrodla'][nazwa]:.0f}" for d in dane])
+    if any(o[3] is not None for o in okna):
+        wiersz(t("ef_wyn_chmura"), ["—" if o[3] is None else f"${o[3]:.0f}" for o in okna])
+    wiersz(t("ef_wyn_tokeny"), [f"{d['tokeny'] / 1e6:.1f}" if rekordy else "—" for d in dane])
+    wiersz(t("ef_wyn_bez_odczytu"), [f"{d['bez_odczytu'] / 1e6:.1f}" if rekordy else "—" for d in dane])
+    wiersz(t("ef_wyn_pr"), ["—" if d["pr"] is None else f"{len(d['pr'])}{gw(d)}" for d in dane])
+    wiersz(t("ef_wyn_koszt_na_pr"), ["—" if wskaznik(d)[0] is None else f"${wskaznik(d)[0]:.2f}{gw(d)}" for d in dane],
+           kierunek(0))
+    wiersz(t("ef_wyn_z_poprawka"), ["—" if wskaznik(d)[1] is None else f"{wskaznik(d)[1]:g}%{gw(d)}" for d in dane],
+           kierunek(1))
+    wiersz(t("ef_wyn_rundy"), ["—" if wskaznik(d)[2] is None else f"{fmt(wskaznik(d)[2])}{gw(d)}" for d in dane],
+           kierunek(2))
+
+    def grupy(klucz, zrodlo, etykieta, kolejnosc=None, z_kosztem=False):
+        """Wiersze podziału: PR okien pogrupowane wg `klucz`, od największej grupy w całej tabeli."""
+        podzial = [collections.defaultdict(list) for _ in dane]
+        for g, d in zip(podzial, dane):
+            for r in d[zrodlo] or []:
+                k = klucz(r)
+                if k is not None:
+                    g[k].append(r)
+        licznik = collections.Counter({k: sum(len(g[k]) for g in podzial if k in g) for g in podzial for k in g})
+        klucze = sorted(licznik, key=lambda k: kolejnosc.index(k)) if kolejnosc else [k for k, _ in licznik.most_common()]
+        for k in klucze:
+            wiersz(etykieta(k), [komorka_pr(g[k], z_kosztem) if k in g else "—" for g in podzial])
+
+    grupy(lambda r: nazwa_modelu(r["autor"]), "pr", lambda k: t("ef_wyn_model", m=k))
+    grupy(lambda r: rozmiar(r["linie"], progi), "pr", lambda k: t("ef_wyn_rozmiar", r=k), ["S", "M", "L", "?"])
+    grupy(lambda r: konfiguracja(r["pr_impl"][1], r["pr_impl"][2]) if r["pr_impl"] and r["pr_koszt"] is not None else None,
+          "polaczone", lambda k: t("ef_wyn_impl", k=k), z_kosztem=True)
+    grupy(lambda r: None if r["pr_impl"] else t("ef_wyn_bez_impl"), "polaczone", lambda k: k)
+    razem = [sum(d["poziomy"].values()) for d in dane]
+    for poziom in sorted({p for d in dane for p in d["poziomy"]}, key=lambda p: (p is None, p or "")):
+        wiersz(t("ef_wyn_poziom", p=poziom or t("ef_wyn_poziom_brak")),
+               [f"${d['poziomy'][poziom]:.0f} ({100 * d['poziomy'][poziom] / r:.0f}%)" if r and d["poziomy"][poziom] >= 0.5
+                else "—" for d, r in zip(dane, razem)])
+    return l
+
+
 def raport(porown, koszty: list, rundy: list, od, do, powroty_zrodel: list, uwagi: list, dzis: dt.date = None,
            przerwa: int = PRZERWA_RUNDY_MIN, polaczone: list = None, agenci_konf: list = (), wzorce: list = (),
-           progi=None) -> list:
+           progi=None, okna_kosztu: dict = None, wyniki: list = ()) -> list:
     """Linie sekcji podsumowania. `koszty`: [(źródło, tab, sumy)]; `rundy`: rekordy `rundy_pr` z kilku tygodni
     (None = pominięte); `powroty_zrodel`: [(źródło, stat, przyczyny)]; `uwagi`: notatki o pominięciach;
-    `polaczone`: `polacz_pr` (None = bez GitHuba); `agenci_konf`: `konfiguracja_agentow`."""
+    `polaczone`: `polacz_pr` (None = bez GitHuba); `agenci_konf`: `konfiguracja_agentow`; `okna_kosztu`: {źródło:
+    `koszt_okna`} (kolumna okna w tabeli kosztu); `wyniki`: gotowe linie `raport_wynikow`."""
     dzis = dzis or dt.date.today()
+    okna_kosztu = okna_kosztu or {}
     l = ["", t("ef_tytul"), "", t("ef_opis")]
     if uwagi:
         l += [""] + [f"- {u}" for u in uwagi]
+    l += list(wyniki)
     # 1. porównanie z poprzednimi retro
     etykiety, wiersze = porown
     l += ["", t("ef_porownanie"), ""]
@@ -485,13 +689,21 @@ def raport(porown, koszty: list, rundy: list, od, do, powroty_zrodel: list, uwag
         l += ["", t("ef_koszt_rol", zrodlo=zrodlo), ""]
         naglowki = [tydz.isoformat()[5:] + (t("ef_niezak") if tydz + dt.timedelta(days=6) >= dzis else "")
                     for tydz in tygodnie]
-        l += ["| " + t("ef_rola_model") + " | " + " | ".join(naglowki) + " |", "|---|" + "---|" * len(tygodnie)]
-        klucze = sorted({k[1:] for k in tab}, key=lambda x: -sum(tab[(w, *x)] for w in tygodnie))
+        okno = okna_kosztu.get(zrodlo, collections.Counter())
+        okno_razem = sum(okno.values())
+        kol_okna = [f"**{t('ef_okno')}**"] if zrodlo in okna_kosztu else []
+        l += ["| " + t("ef_rola_model") + " | " + " | ".join(naglowki + kol_okna) + " |",
+              "|---|" + "---|" * (len(tygodnie) + len(kol_okna))]
+        klucze = sorted({k[1:] for k in tab} | set(okno), key=lambda x: -sum(tab[(w, *x)] for w in tygodnie))
         for r, m, poziom in klucze:
             komorki = [f"{fmt_usd(tab[(w, r, m, poziom)])} ({100 * tab[(w, r, m, poziom)] / sumy[w]:.0f}%)"
                        if tab[(w, r, m, poziom)] >= 0.01 and sumy[w] else "—" for w in tygodnie]
+            if kol_okna:
+                k = okno[(r, m, poziom)]
+                komorki.append(f"{fmt_usd(k)} ({100 * k / okno_razem:.0f}%)" if k >= 0.01 else "—")
             l.append(f"| {etykieta_roli(r)} · {konfiguracja(m, poziom)} | " + " | ".join(komorki) + " |")
-        l.append(f"| **{t('ef_razem')}** | " + " | ".join(f"**{fmt_usd(sumy[w])}**" for w in tygodnie) + " |")
+        l.append(f"| **{t('ef_razem')}** | " + " | ".join(
+            [f"**{fmt_usd(sumy[w])}**" for w in tygodnie] + ([f"**{fmt_usd(okno_razem)}**"] if kol_okna else [])) + " |")
     # 3. rundy poprawek w scalonych PR
     if rundy is not None:
         l += ["", t("ef_rundy"), "", t("ef_rundy_opis", przerwa=przerwa)]
@@ -502,7 +714,7 @@ def raport(porown, koszty: list, rundy: list, od, do, powroty_zrodel: list, uwag
         for r in rundy:
             tygodnie[r["tydzien"]].append(r)
             modele[r["autor"]].append(r)
-        w_oknie = [r for r in rundy if od <= r["scalony"] < do]
+        okno_pr = w_oknie(rundy, od, do)
 
         def wiersz(etykieta, lista):
             o = opis_pr(lista)
@@ -512,7 +724,11 @@ def raport(porown, koszty: list, rundy: list, od, do, powroty_zrodel: list, uwag
         l += ["", f"| {t('ef_tydzien_scalenia')} " + kolumny, "|---|---|---|---|---|---|"]
         l += [wiersz(tydz.isoformat() + (t("ef_niezak") if tydz + dt.timedelta(days=6) >= dzis else ""), tygodnie[tydz])
               for tydz in sorted(tygodnie)]
-        l.append(wiersz(f"**{t('ef_okno')}**", w_oknie))
+        l.append(wiersz(f"**{t('ef_okno')}**", okno_pr))
+        tyg_okna = collections.Counter(r["tydzien"] for r in okno_pr)
+        if len(tyg_okna) > 1:
+            l += ["", t("ef_okno_tygodnie", od=f"{od:%m-%d %H:%M}", podzial=", ".join(
+                f"{tydz.isoformat()[5:]}: {n}" for tydz, n in sorted(tyg_okna.items())))]
         l += ["", f"| {t('ef_model_autora')} " + kolumny, "|---|---|---|---|---|---|"]
         l += [wiersz(nazwa_modelu(m), lista) for m, lista in sorted(modele.items(), key=lambda x: -len(x[1]))]
         nazwy = sorted(modele, key=lambda m: -len(modele[m]))
@@ -533,7 +749,8 @@ def raport(porown, koszty: list, rundy: list, od, do, powroty_zrodel: list, uwag
             l += ["", t("ef_kto_poprawia") + ", ".join(f"{nazwa_modelu(a)} → {nazwa_modelu(b)}: {n}"
                                                        for (a, b), n in kto.most_common()) + "."]
     if polaczone is not None or agenci_konf:
-        l += raport_konfiguracji(polaczone or [], agenci_konf, list(wzorce), progi)
+        l += raport_konfiguracji(polaczone or [], agenci_konf, list(wzorce), progi,
+                                 od if polaczone is not None else None, do)
     # 4. powroty w transkrypcjach
     for zrodlo, stat, przyczyny in powroty_zrodel:
         l += ["", t("ef_powroty", zrodlo=zrodlo), ""]
@@ -551,13 +768,13 @@ def raport(porown, koszty: list, rundy: list, od, do, powroty_zrodel: list, uwag
 
 def metryki_okna(rundy, od, do, powroty_zrodel: list, wywolania: list, wzorce: list, polaczone: list = None) -> dict:
     """Kolumny `metryki.csv` od 0.3.0 i 0.4.0 (PR scalone w oknie; powroty ze wszystkich źródeł)."""
-    w_oknie = [r for r in rundy if od <= r["scalony"] < do] if rundy is not None else None
+    okno_pr = w_oknie(rundy, od, do) if rundy is not None else None
     m = {"pr_analizowane": None, "pr_z_poprawka_proc": None, "rundy_na_pr": None, "pr_wg_modelu": None,
          "pr_z_poprawka_proc_wg_modelu": None}
-    if w_oknie is not None:
-        o = opis_pr(w_oknie)
+    if okno_pr is not None:
+        o = opis_pr(okno_pr)
         modele = collections.defaultdict(list)
-        for r in w_oknie:
+        for r in okno_pr:
             modele[nazwa_modelu(r["autor"])].append(r)
         m.update({"pr_analizowane": o["pr"], "pr_z_poprawka_proc": o["z_poprawka"], "rundy_na_pr": o["rundy"],
                   "pr_wg_modelu": udzialy(collections.Counter({k: len(v) for k, v in modele.items()})),
@@ -571,7 +788,7 @@ def metryki_okna(rundy, od, do, powroty_zrodel: list, wywolania: list, wzorce: l
     m["powroty_ci"] = przyczyny["ci"] if powroty_zrodel else None
     m["koszt_implementacji_proc_wg_modelu"] = koszt_implementacji_wg_modelu(wywolania, wzorce)
     # od 0.4.0: koszt agentów na PR scalony w oknie i wg konfiguracji implementatora, udział poziomów rozumowania
-    z_kosztem = [r for r in polaczone or [] if r["pr_koszt"] is not None and r["pr_impl"] and od <= r["scalony"] < do]
+    z_kosztem = [r for r in w_oknie(polaczone, od, do) if r["pr_koszt"] is not None and r["pr_impl"]]
     m["pr_powiazane"] = len(z_kosztem) if polaczone is not None else None
     m["koszt_na_pr_usd"] = round(opis_konfiguracji(z_kosztem)["na_pr"], 2) if z_kosztem else None
     grupy = collections.defaultdict(list)

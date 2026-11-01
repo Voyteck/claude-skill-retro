@@ -107,6 +107,24 @@ Taken over from the `claude-usage-report` skill, which retro replaces.
 The summary section "Tokens and writing efficiency" („Tokeny i efektywność pisania”) is data for the mandatory
 section 2a of the retro document.
 
+- **Results against previous retros (since 0.7.0):** the table for the closing message (`SKILL.md`, step 6). The last 3
+  rows of `metryki.csv` give only the windows (start, end, cloud cost); each window ends at the latest where the next
+  starts, so a retro day does not count twice. Everything else is recomputed now by one definition: cost and tokens
+  from the trend archives of all sources (current model prices of the family, like the week columns; cloud is a separate
+  row), PRs from the fix-round data, merged in the window. So the numbers can differ from old `metryki.csv` rows. Cost
+  per merged PR = the window's whole cost / merged PRs, unlike `koszt_na_pr_usd` (agent cost of PRs with attributed
+  agents). A window older than the start of the tables (`efektywnosc_tygodnie`) has "—" for PR rows. `*` = fewer than 5
+  PRs; such samples have no direction and do not enter the median.
+- **The retro window (since 0.7.0):** the window row of fix rounds, the window column of the cost table, the window table
+  of cost and quality per PR, and `metryki.csv` use one filter (`w_oknie`: merged in `[start, end)`) over the same
+  records as the weeks. The window and the weeks are different cuts of the same PRs: a week starts on Monday, so a
+  weekend PR falls into the previous week; when the window spans weeks the summary gives the split.
+- **Possible move to another repo (since 0.7.0):** a note for a week touching the window whose cost across sources is at least
+  `ostrzezenie_koszt_tygodnia_usd`, with no merged PRs in tracked repos or a cost per PR at least 3 times the median of
+  the other weeks. It is a question to check, not a finding: a week of really expensive PRs fires it too.
+- **Reading date of agent events (since 0.7.0):** for each remote source with events, a note gives the reading time, the
+  last event (local time) and how many of the window's PRs have no implementer, how many of them merged after the last
+  event. Events end at the moment of reading, so a stale reading raises `pr_bez_agenta_proc` by itself.
 - **Against previous retros:** `koszt_na_wiadomosc_usd`, `kontekst_mediana`, `kontekst_ponad_200k_proc`,
   `kontekst_startowy_mediana`, `podagenci_opus_koszt_proc`, `wybudzenia_koszt_usd`, `pr_z_poprawka_proc`,
   `rundy_na_pr`, `powroty_przeglad`, `powroty_ci`, `koszt_na_pr_usd` from the last 3 rows of `metryki.csv` (a row of the same window,
