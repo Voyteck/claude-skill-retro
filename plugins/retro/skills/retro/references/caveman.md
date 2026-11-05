@@ -76,6 +76,29 @@ and make sure no prohibition turned into permission.
 6. Files in repositories with their own rules (PRs, branch protection): as other rule changes, branch
    `retro/rNN-caveman` and a PR; the check runs before the commit.
 
+## Communication style (since 0.7.1)
+
+Compression above concerns files. The same idea applies to messages, which are paid for in every later call of the
+conversation. Three configuration fields, decided by the user:
+
+| field | values | scope |
+|---|---|---|
+| `komunikacja_agentow` | `ultra` / `wyl` | subagent prompts, messages to other sessions, subagent reports, handoffs: English at `ultra` |
+| `komunikacja_poziom` | `normalny` / `caveman` / `ultra` | chat with the user; `caveman` means the `standard` level above |
+| `komunikacja_jezyk` | language code, empty = `jezyk` | chat with the user |
+
+- **Always verbatim:** code, paths, commands, error messages, numbers, identifiers. A subagent's finding keeps its evidence.
+- **Full sentences to the user, at any level:** security warnings, irreversible steps, the consequences of options in a
+  decision question. Saving a few tokens there costs a wrong decision.
+- **Outside the rule:** commits, PRs, issues, documentation (each follows its repository's rules), the retro file and
+  the register (standing rule 8).
+- **Mechanism:** `caveman.py regula` prints the rule from the configuration; it goes into the rules file that loads in
+  every session and subagent, with a `Z-NNN` number. It is a text rule with no hook: nothing can rewrite a model's
+  message, so the retro measures it.
+- **Measure:** `tokeny_wyjscia_na_wiadomosc` against previous retros, within one machine; `wiad_mozliwa_korekta` and
+  questions from the user about what a message meant are the cost. More corrections with no drop in tokens → back to
+  the previous level.
+
 ## Measure
 
 - `pliki_kontekstu_tokeny` (sum of context files, characters / 4) and `caveman_do_kompresji_tokeny` in `metryki.csv`;

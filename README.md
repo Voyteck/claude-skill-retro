@@ -22,6 +22,9 @@ Since 0.7.0 the retro **closes with a results table in the chat**: cost and toke
 rounds per PR, split by author model, PR size and reasoning effort, against the previous 2–3 retros, with samples under
 5 PRs marked. The summary warns when a week's cost is high but tracked repos show few PRs (work may have moved).
 
+Since 0.7.1 the retro **proposes leaner correspondence**: agents and sessions among themselves in English at caveman ultra, and
+messages to the user in a language and at a level of the user's choice (plain, caveman, caveman ultra). Nothing changes by default.
+
 Since 0.6.0 the retro **manages agent definitions between retros**: it keeps a snapshot of every agent's model,
 reasoning effort, description and prompt after each retro (`agenci.csv`), shows each change with the PRs before and
 after it (count, share with a fix, cost per PR), shows task routing (who implements PRs of which size, unused agents)

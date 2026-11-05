@@ -32,6 +32,9 @@ defaults from `scripts/wspolne.py` (`DOMYSLNA_KONFIGURACJA`). Change it by hand 
 | `pr_progi_rozmiaru` | `[50, 300]` | PR size buckets in lines (additions + deletions): S up to the first, M up to the second, L above (since 0.4.0) |
 | `ostrzezenie_koszt_tygodnia_usd` | `100` | from this weekly cost (USD, all sources) the summary warns about no merged PRs in tracked repos, or a cost per PR 3 times the other weeks: work may have moved to an untracked repo (since 0.7.0) |
 | `caveman` | `standard` | compression level of context files (since 0.6.0): `wyl` (off: sizes only), `lekki` (lite), `standard`, `ultra`; rules in `references/caveman.md` |
+| `komunikacja_poziom` | `normalny` | style of messages to the user (since 0.7.1): `normalny` (plain), `caveman`, `ultra`; rules in `references/caveman.md`, "Communication style" |
+| `komunikacja_jezyk` | `""` (= `jezyk`) | language of messages to the user, any language code; documents stay in `jezyk` |
+| `komunikacja_agentow` | `""` (not asked) | messages among agents and sessions: `ultra` (English, caveman ultra) or `wyl` (off); the retro proposes it once while empty |
 | `caveman_pomin` | `[]` | files never proposed for compression: glob patterns matched against the path with `~` (e.g. `~/.claude/agents/*.md`, `*/memory/MEMORY.md`) or the file name |
 
 ## Glossary of identifiers

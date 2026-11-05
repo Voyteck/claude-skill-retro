@@ -8,6 +8,7 @@ Użycie (katalog roboczy: --katalog albo wykryty):
   python caveman.py kopia --retro R07 PLIK...     kopia w `dane/caveman/R07/` (istniejąca kopia zostaje: to oryginał)
   python caveman.py sprawdz --retro R07 PLIK...   kontrola wobec kopii; bez błędów zapis w `caveman.csv`; kod 1 przy błędach
   python caveman.py przywroc --retro R07 PLIK...  oryginał z kopii, wiersz rejestru usunięty
+  python caveman.py regula                        gotowa zasada stylu korespondencji z konfiguracji (`komunikacja_*`)
 
 Pliki samego pluginu retro i zainstalowanych pluginów (`<katalog Claude Code>/plugins/`) nie są kandydatami.
 """
@@ -33,6 +34,7 @@ POLA_REJESTRU = ["retro", "data", "plik", "poziom", "tokeny_przed", "tokeny_po",
 KATALOG_KOPII = pathlib.Path("dane") / "caveman"
 PLIK_LISTY = "pliki-kontekstu.json"
 POZIOMY = ("wyl", "lekki", "standard", "ultra")
+POZIOMY_KOMUNIKACJI = ("normalny", "caveman", "ultra")
 SKILL = pathlib.Path(__file__).resolve().parent.parent
 STANY = ("nieskompresowany", "zmieniony", "inny_poziom", "skompresowany")
 
@@ -336,13 +338,29 @@ def lista(katalog: pathlib.Path, konf: dict, wszystkie: bool = False) -> dict:
             "tokeny": sum(o["tokeny"] for o in opisane)}
 
 
+def regula_komunikacji(konf: dict) -> str:
+    """Zasada do pliku reguł: styl do użytkownika i między agentami. Bez zmian wobec domyślnych = pusty tekst."""
+    poz = konf.get("komunikacja_poziom") or "normalny"
+    if poz not in POZIOMY_KOMUNIKACJI:
+        sys.exit(t("cv_zly_poziom_komunikacji", poziom=poz))
+    agenci = konf.get("komunikacja_agentow") == "ultra"
+    if poz == "normalny" and not agenci and not konf.get("komunikacja_jezyk"):
+        return ""
+    jezyk = konf.get("komunikacja_jezyk") or konf.get("jezyk") or "pl"
+    linie = [t("kom_agenci")] if agenci else []
+    linie.append(t(f"kom_{poz}", jezyk=jezyk))
+    if agenci or poz != "normalny":
+        linie.append(t("kom_wyjatki"))
+    return "\n".join(f"- {x}" for x in linie)
+
+
 def main(argv=None):
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
         pass
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("polecenie", choices=["lista", "kopia", "sprawdz", "przywroc"])
+    ap.add_argument("polecenie", choices=["lista", "kopia", "sprawdz", "przywroc", "regula"])
     ap.add_argument("pliki", nargs="*")
     ap.add_argument("--retro", help="numer retro, np. R07 (kopia, sprawdz, przywroc)")
     ap.add_argument("--katalog", help="katalog roboczy retro; domyślnie wykryty")
@@ -353,6 +371,9 @@ def main(argv=None):
         sys.exit(t("dop_brak_katalogu"))
     konf = wspolne.wczytaj_konfiguracje(katalog)
     teksty.ustaw(konf)
+    if a.polecenie == "regula":
+        print(regula_komunikacji(konf))
+        return 0
     if a.polecenie == "lista":
         print(json.dumps(lista(katalog, konf, a.wszystkie), ensure_ascii=False, indent=2))
         return 0

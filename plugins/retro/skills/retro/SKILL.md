@@ -61,7 +61,9 @@ starts by reviewing what was agreed before.
    missing), plain, without jargon where an ordinary word exists. These instructions are in English; that does
    not change the output language. Exception: text that goes into context files (CLAUDE.md, agents, memory,
    `nauki.md`) is written in that language at the `caveman` level of the configuration (`references/caveman.md`);
-   the retro document and the register stay plain.
+   the retro document and the register stay plain. Chat with the user follows `komunikacja_poziom` and
+   `komunikacja_jezyk`; subagent prompts and reports follow `komunikacja_agentow` (`references/caveman.md`,
+   "Communication style").
 
 ## Step 0. Detection and first run
 
@@ -288,6 +290,12 @@ below are in English; write them in the user's language.
 - caveman compression (one question per group: global files, each repository, memory): number of files and
   ~tokens at the configured level; `Compress (recommended)` / `Only: …` / `Not now`. The first compression ever is
   also a commitment (measure: `kontekst_startowy_mediana`, compliance with the compressed rules);
+- communication style, once, while `komunikacja_agentow` is empty (three separate questions; recommend it with
+  `tokeny_wyjscia_na_wiadomosc` from the summary): among agents and sessions in English at caveman ultra:
+  `Accept (recommended)` / `Reject`; level of messages to the user: `normal` / `caveman` / `caveman ultra`;
+  language of messages to the user: the current `jezyk` (recommended) / English / another. Save the answers in the
+  configuration (`wyl` when rejected), put the output of `caveman.py regula` into the rules file with a `Z-NNN`;
+  the commitment's measure is in the same section of the reference;
 - a "waiting for the user" item: `Do it now (in a project session)` / `Close` / `Postpone to <date>`.
   "Do it now" = a task for a project session with full context, not retro work. When there is a tool for starting
   sessions (e.g. `start_session`, `spawn_task`), propose it right away as a card (a proposal the user starts with

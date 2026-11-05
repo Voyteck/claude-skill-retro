@@ -1,5 +1,16 @@
 # Zmiany
 
+## 0.7.1 · 2026-11-05
+
+Propozycja oszczędności tokenów w korespondencji: krótsze wiadomości są tańsze w każdym kolejnym wywołaniu.
+
+- **Styl korespondencji do wyboru:** nowe pola `komunikacja_poziom` (`normalny`, `caveman`, `ultra`), `komunikacja_jezyk`
+  (dowolny kod języka, pusty = `jezyk`) i `komunikacja_agentow` (`ultra` = po angielsku, `wyl`). Domyślnie nic się nie
+  zmienia: retro raz proponuje to w kroku 4, a użytkownik wybiera język i poziom.
+- **`caveman.py regula`:** gotowa zasada z konfiguracji do pliku reguł. Ostrzeżenia o bezpieczeństwie, kroki
+  nieodwracalne i skutki opcji w pytaniach zostają pełnymi zdaniami; kod, ścieżki i błędy zostają dosłownie.
+- **Nowa miara:** `tokeny_wyjscia_na_wiadomosc` w `metryki.csv` i porównaniu z poprzednimi retro.
+
 ## 0.7.0 · 2026-11-01
 
 Zamknięcie retro to raport z wyników wobec poprzednich retro, a nie tylko kilka zdań.

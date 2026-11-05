@@ -1306,6 +1306,7 @@ def main(argv=None):
         "okno_od_godzina": f"{od:%H:%M}", "pyt_fakt": suma["pyt_fakt"],
         **tok["metryki"],
         "koszt_na_wiadomosc_usd": round(tok["koszt"] / suma["wiad_wlasciciela"], 2) if suma["wiad_wlasciciela"] else None,
+        "tokeny_wyjscia_na_wiadomosc": round(tok["wyjscie_tokeny"] / suma["wiad_wlasciciela"]) if suma["wiad_wlasciciela"] else None,
         "commity_bez_sesji": sum(r["commity_bez_sesji"] for r in repo.values()),
         "pr_bez_sesji": sum(r["pr_bez_sesji"] for r in repo.values()),
         "claude_md_linie_osobno": sum(n for _, _, n, osobno in regul if osobno),

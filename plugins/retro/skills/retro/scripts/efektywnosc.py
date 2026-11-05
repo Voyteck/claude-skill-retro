@@ -32,7 +32,7 @@ RODZINY = ("fable", "mythos", "opus", "sonnet", "haiku")
 PRZERWA_RUNDY_MIN, MAX_COMMITOW, POMIN_GALEZIE, TYGODNIE = 20, 40, ["integration/", "batch/"], 6
 MAX_STRON_GH = 10
 # Porównanie z poprzednimi retro (kolumny `metryki.csv`); dla każdego wskaźnika więcej = gorzej.
-POROWNANIE = ["koszt_na_wiadomosc_usd", "kontekst_mediana", "kontekst_ponad_200k_proc", "kontekst_startowy_mediana",
+POROWNANIE = ["koszt_na_wiadomosc_usd", "tokeny_wyjscia_na_wiadomosc", "kontekst_mediana", "kontekst_ponad_200k_proc", "kontekst_startowy_mediana",
               "podagenci_opus_koszt_proc", "wybudzenia_koszt_usd", "pr_z_poprawka_proc", "rundy_na_pr",
               "powroty_przeglad", "powroty_ci", "koszt_na_pr_usd", "pliki_kontekstu_tokeny"]
 POPRZEDNIE_RETRO = 3
