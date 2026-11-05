@@ -1964,5 +1964,48 @@ class Test060Caveman(Srodowisko):
             ["retro", "data", "plik", "poziom", "tokeny_przed", "tokeny_po", "sha_po"]))
 
 
+class Test071(Srodowisko):
+    """0.7.1: styl korespondencji z konfiguracji i miara tokenów wyjścia."""
+
+    def setUp(self):
+        super().setUp()
+        import teksty
+        teksty.ustaw("pl")
+
+    def test_domyslnie_brak_reguly(self):
+        import caveman
+        import wspolne
+        self.assertEqual(caveman.regula_komunikacji(dict(wspolne.DOMYSLNA_KONFIGURACJA, jezyk="pl")), "")
+
+    def test_poziom_i_jezyk_do_uzytkownika(self):
+        import caveman
+        r = caveman.regula_komunikacji({"jezyk": "pl", "komunikacja_poziom": "caveman"})
+        self.assertIn("język `pl`, caveman standard", r)
+        self.assertNotIn("po angielsku", r)
+        self.assertIn("Pełne zdania", r)
+        r = caveman.regula_komunikacji({"jezyk": "pl", "komunikacja_poziom": "ultra", "komunikacja_jezyk": "de"})
+        self.assertIn("język `de`, caveman ultra", r)
+        r = caveman.regula_komunikacji({"jezyk": "pl", "komunikacja_jezyk": "de"})
+        self.assertIn("język `de`, zwykłe zdania", r)
+        self.assertNotIn("Pełne zdania", r)
+
+    def test_agenci_ultra_po_angielsku(self):
+        import caveman
+        r = caveman.regula_komunikacji({"jezyk": "pl", "komunikacja_agentow": "ultra"}).splitlines()
+        self.assertEqual(len(r), 3)
+        self.assertIn("po angielsku, caveman ultra", r[0])
+        self.assertNotIn("po angielsku", caveman.regula_komunikacji({"jezyk": "pl", "komunikacja_agentow": "wyl",
+                                                                     "komunikacja_poziom": "caveman"}))
+
+    def test_zly_poziom(self):
+        import caveman
+        with self.assertRaises(SystemExit):
+            caveman.regula_komunikacji({"komunikacja_poziom": "bla"})
+
+    def test_miara_w_porownaniu(self):
+        import efektywnosc
+        self.assertIn("tokeny_wyjscia_na_wiadomosc", efektywnosc.POROWNANIE)
+
+
 if __name__ == "__main__":
     unittest.main()

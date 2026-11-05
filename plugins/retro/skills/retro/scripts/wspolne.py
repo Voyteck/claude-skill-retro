@@ -57,6 +57,10 @@ DOMYSLNA_KONFIGURACJA = {
     "ostrzezenie_koszt_tygodnia_usd": 100, # od tego kosztu tygodnia ostrzeżenie o możliwej zmianie repo pracy (od 0.7.0)
     # pliki kontekstu w stylu caveman (od 0.6.0)
     "caveman": "standard",                 # wyl | lekki | standard | ultra (references/caveman.md)
+    # styl korespondencji (od 0.7.1; references/caveman.md, „Communication style”)
+    "komunikacja_poziom": "normalny",      # do użytkownika: normalny | caveman | ultra
+    "komunikacja_jezyk": "",               # do użytkownika: kod języka; pusty = `jezyk`
+    "komunikacja_agentow": "",             # agenci i sesje między sobą: "" (nie pytano) | wyl | ultra (po angielsku)
     "caveman_pomin": [],                   # wzorce ścieżek (`~/…`, glob) albo nazw plików pomijanych przy kompresji
 }
 

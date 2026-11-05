@@ -57,6 +57,7 @@ Columns since 0.1.3 (in `metryki.csv` at the end, after `zobowiazania_aktywne`; 
 | `wywolania_api` | unique `message.id` in the window, sessions and subagents | see "Tokens and cost" |
 | `koszt_api_usd` | tokens × API prices from `references/cennik.json` | relative measure, lower bound |
 | `koszt_na_wiadomosc_usd` | `koszt_api_usd` / `wiad_wlasciciela` | comparable between retros when the price list is the same |
+| `tokeny_wyjscia_na_wiadomosc` | output tokens of the window (main session and subagents) / `wiad_wlasciciela` | measure of the communication style (since 0.7.1); depends on the kind of work, so compare within one machine and over several retros |
 | `kontekst_mediana` | median context (input + cache write + cache read) of main-session calls | context size × number of calls is the main cost |
 | `kontekst_ponad_200k_proc` | share of main-session calls with context > 200k | |
 | `kontekst_startowy_mediana` | median context of the first call of sessions started in the window | fixed overhead: system prompt, tools, skills, MCP, CLAUDE.md, memory; a session with copies of another session's calls (fork) is excluded |

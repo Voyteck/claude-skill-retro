@@ -501,6 +501,24 @@ TEKSTY = {
 
     # caveman.py (od 0.6.0): pliki kontekstu
     "cv_tytul": {"pl": "## Pliki kontekstu (caveman)", "en": "## Context files (caveman)"},
+    "cv_zly_poziom_komunikacji": {"pl": "Nieznany `komunikacja_poziom`: {poziom} (normalny, caveman, ultra).",
+                                  "en": "Unknown `komunikacja_poziom`: {poziom} (normalny, caveman, ultra)."},
+    "kom_agenci": {
+        "pl": "Agenci i sesje między sobą (prompt podagenta, wiadomość do sesji, raport podagenta, handoff): "
+              "po angielsku, caveman ultra. Dosłownie: kod, ścieżki, polecenia, błędy, liczby, identyfikatory.",
+        "en": "Agents and sessions among themselves (subagent prompt, message to a session, subagent report, handoff): "
+              "English, caveman ultra. Verbatim: code, paths, commands, errors, numbers, ids."},
+    "kom_normalny": {"pl": "Do użytkownika: język `{jezyk}`, zwykłe zdania.",
+                     "en": "To the user: language `{jezyk}`, plain sentences."},
+    "kom_caveman": {"pl": "Do użytkownika: język `{jezyk}`, caveman standard (bez wypełniaczy, równoważniki).",
+                    "en": "To the user: language `{jezyk}`, caveman standard (no filler, fragments)."},
+    "kom_ultra": {"pl": "Do użytkownika: język `{jezyk}`, caveman ultra (skróty, `→`, jedna linia na fakt).",
+                  "en": "To the user: language `{jezyk}`, caveman ultra (abbreviations, `→`, one line per fact)."},
+    "kom_wyjatki": {
+        "pl": "Pełne zdania: ostrzeżenia o bezpieczeństwie, kroki nieodwracalne, skutki opcji w pytaniach decyzyjnych. "
+              "Poza zasadą: commity, PR-y, issues, dokumentacja, plik retro, rejestr.",
+        "en": "Full sentences: security warnings, irreversible steps, consequences of options in decision questions. "
+              "Outside this rule: commits, PRs, issues, documentation, the retro file, the register."},
     "cv_opis": {
         "pl": "Pliki .md ładowane do kontekstu sesji i podagentów (reguły, agenci, pamięć, `nauki.md`, własne skille "
               "i polecenia), bez plików pluginów. Poziom kompresji z konfiguracji: **{poziom}** (`caveman`); zasady: "
