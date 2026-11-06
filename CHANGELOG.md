@@ -1,5 +1,22 @@
 # Zmiany
 
+## 0.7.2 · 2026-11-06
+
+Cztery poprawki sygnałów z retro R07 (#13–#16).
+
+- **Bezpośrednia miara stylu korespondencji** (#13): `znaki_do_wlasciciela_na_wiadomosc` (mediana znaków tekstu sesji
+  głównej między wiadomościami użytkownika, bez odpowiedzi samymi narzędziami) i `znaki_promptu_agenta` (mediana
+  długości `prompt` wywołań `Agent`/`Task`) w `metryki.csv` i porównaniu z poprzednimi retro.
+  `tokeny_wyjscia_na_wiadomosc` zostaje jako informacyjna.
+- **Odpowiedź na pytanie jako przyczyna wybudzenia** (#16): `wybudzenia_odpowiedz`, gdy sesję po przerwie obudził wynik
+  `AskUserQuestion` (dotąd w `wybudzenia_inne`).
+- **Token `gh` per repo** (#14): `gh_pomin` (repo bez zapytań gh), etykieta „brak dostępu tokena” zamiast błędu GraphQL
+  i opcjonalne `gh_token_z_credential` (token z `git credential fill` jako `GH_TOKEN` procesu gh; domyślnie wyłączone,
+  bez pytań w terminalu; token nie trafia do wyjścia).
+- **Model autora PR ze stopki `Agent:`** (#15): przy stopce `Agent: <nazwa>` model z definicji agenta w dniu commita
+  (`agenci.csv` i obecne definicje), a `Co-Authored-By` tylko bez niej albo dla agenta `inherit`. Podsumowanie wymienia
+  PR z rozbieżnością obu stopek. Bez stopki `Agent:` nic się nie zmienia.
+
 ## 0.7.1 · 2026-11-05
 
 Propozycja oszczędności tokenów w korespondencji: krótsze wiadomości są tańsze w każdym kolejnym wywołaniu.

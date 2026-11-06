@@ -47,6 +47,8 @@ DOMYSLNA_KONFIGURACJA = {
                                            # opcjonalnie "zdarzenia_polecenie" | "zdarzenia_plik" — zdarzenia agentów
     "rejestry_pytan": [],                  # pliki z otwartymi pytaniami do ludzi spoza zespołu
     "gh": None,                            # ścieżka do gh, gdy nie ma go w PATH
+    "gh_pomin": [],                        # repo pomijane w zapytaniach gh: nazwa lokalna albo `właściciel/repo` (od 0.7.2)
+    "gh_token_z_credential": False,        # token gh per repo z `git credential fill` (od 0.7.2; opt-in)
     # efektywność pisania (od 0.3.0)
     "role_agentow": {},                    # {"implementacja": ["wzorzec", ...], ...}; puste = efektywnosc.ROLE_DOMYSLNE
     "efektywnosc_tygodnie": 6,             # ile tygodni wstecz w tabelach kosztu wg roli i rund poprawek
@@ -132,6 +134,53 @@ def sciezka_gh(konf: dict):
         if k and os.path.exists(k):
             return k
     return None
+
+
+# Token gh bez dostępu do repo (prywatne repo innego konta, fine-grained PAT bez tego repo).
+GH_BRAK_DOSTEPU = re.compile(r"Could not resolve to a Repository|HTTP 40[34]|Resource not accessible", re.I)
+
+
+def repo_zdalne(sciezka) -> tuple:
+    """(host, `właściciel/repo`) zdalnego `origin` (https albo ssh) albo (None, None)."""
+    try:
+        r = subprocess.run(["git", "remote", "get-url", "origin"], cwd=sciezka, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None, None
+    m = re.match(r"(?:\w+://)?(?:[^@/]+@)?([^/:]+)(?::\d+)?[/:](.+?)(?:\.git)?/?$", r.stdout.strip())
+    return (m.group(1).lower(), m.group(2)) if r.returncode == 0 and m else (None, None)
+
+
+def gh_pominiete(nazwa: str, sciezka, konf: dict) -> bool:
+    """Repo z `gh_pomin` (nazwa lokalna albo `właściciel/repo`, bez rozróżniania wielkości liter)."""
+    pomin = {str(p).lower() for p in konf.get("gh_pomin") or []}
+    if not pomin:
+        return False
+    return nazwa.lower() in pomin or (repo_zdalne(sciezka)[1] or "").lower() in pomin
+
+
+def srodowisko_gh(sciezka, konf: dict):
+    """Środowisko dla gh z tokenem repo z `git credential fill`, gdy `gh_token_z_credential`; inaczej None
+    (token domyślny gh). Bez pytań w terminalu i oknach: helper bez zapisanego credentiala kończy się błędem.
+    Token trafia tylko do środowiska procesu gh, nigdy do wyjścia skryptu."""
+    if not konf.get("gh_token_z_credential"):
+        return None
+    host, repo = repo_zdalne(sciezka)
+    if not host:
+        return None
+    cicho = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="", SSH_ASKPASS="", GCM_INTERACTIVE="never")
+    try:
+        r = subprocess.run(["git", "-c", "core.askPass=", "-c", "credential.interactive=never", "credential", "fill"],
+                           cwd=sciezka, input=f"protocol=https\nhost={host}\npath={repo}.git\n\n",
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, env=cicho)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    haslo = next((l[9:] for l in r.stdout.splitlines() if l.startswith("password=")), "")
+    if not haslo:
+        return None
+    return dict(os.environ, **{"GH_TOKEN" if host == "github.com" else "GH_ENTERPRISE_TOKEN": haslo})
 
 
 # ---------------------------------------------------------------- kalendarz

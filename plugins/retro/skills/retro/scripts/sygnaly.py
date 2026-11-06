@@ -68,7 +68,8 @@ NIE_WLASCICIEL = ("<local-command", "<task-notification", "[Cross-session", "<cr
                   "<system-reminder", "Background (from the session", "<side-sessions-event", "<agent-message",
                   "Another Claude session", "The app was quit", "Caveat:")
 # Przyczyny wybudzenia: co weszło do sesji tuż przed wywołaniem po przerwie (kolejność = kolumny metryk).
-PRZYCZYNY_WYBUDZEN = ("wlasciciel", "tlo", "sesja", "inne")
+# `odpowiedz` (od 0.7.2): odpowiedź właściciela na `AskUserQuestion`, czyli pytanie zadane przed długą przerwą.
+PRZYCZYNY_WYBUDZEN = ("wlasciciel", "tlo", "sesja", "inne", "odpowiedz")
 INNA_SESJA = ("<agent-message", "<cross-session-message", "[Cross-session", "Another Claude session",
               "Background (from the session")
 # Wynik narzędzia z błędem: odrzucone (środowisko zatrzymało wywołanie, zanim ruszyło; każde to tura z pełnym
@@ -275,8 +276,9 @@ def przyczyna_tekstu(tekst: str, pochodzenie, d: dict = None) -> str:
     return "wlasciciel"
 
 
-def przyczyna_wejscia(d: dict):
-    """Przyczyna rekordu, który może obudzić bezczynną sesję, albo None (rekord to nie wejście)."""
+def przyczyna_wejscia(d: dict, narzedzia: dict = None):
+    """Przyczyna rekordu, który może obudzić bezczynną sesję, albo None (rekord to nie wejście).
+    `narzedzia`: tool_use_id -> (nazwa, input) z wcześniejszych rekordów sesji (odpowiedź na pytanie)."""
     typ = d.get("type")
     if typ == "queue-operation":
         return przyczyna_tekstu(str(d.get("content") or ""), None, d) if d.get("operation") == "enqueue" else None
@@ -289,6 +291,9 @@ def przyczyna_wejscia(d: dict):
         return None
     tresc = (d.get("message") or {}).get("content")
     if isinstance(tresc, list) and any(x.get("type") == "tool_result" for x in tresc):
+        if any((narzedzia or {}).get(x.get("tool_use_id"), ("",))[0] == "AskUserQuestion"
+               for x in tresc if x.get("type") == "tool_result"):
+            return "odpowiedz"
         return "inne"       # wynik narzędzia: ciąg dalszy tury (np. długi podagent albo ponowienia po błędach API)
     return przyczyna_tekstu(tekst_tresci(tresc), (d.get("origin") or {}).get("kind"), d)
 
@@ -315,6 +320,8 @@ class Sesja:
         self.czasy = []            # czasy rekordów w oknie (sesja i podagenci): aktywność przy commitach
         self.wywolania = {}        # message.id -> wywołanie API (sesja i podagenci, także spoza okna)
         self.wejscia = []          # (czas, przyczyna) wejść sesji głównej, także spoza okna: przyczyny wybudzeń
+        self.znaki_odpowiedzi = []  # znaki tekstu sesji do właściciela, po jednej pozycji na jego wiadomość (od 0.7.2)
+        self.znaki_promptow = []   # długość `prompt` wywołań Agent/Task sesji głównej w oknie (od 0.7.2)
         self.koszt = None          # koszt w oknie po deduplikacji (metryki_tokenow)
         self.cost_state = 0        # największy `totalCostUSD` z rekordów cost-state (kontrola kosztu w trendzie)
         self.projekt = ("nieznany", None)
@@ -350,6 +357,7 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
         s.licz["wiad_wlasciciela"] += 1
         s.licz["wiad_mozliwa_korekta"] += korekta
         s.licz["wiad_w_trakcie"] += w_trakcie
+        s.znaki_odpowiedzi.append(0)
         s.zdarzenia.append((czas, "wlasciciel", {
             "tekst": skroc(tekst, 1200), "korekta": korekta, "w_trakcie": w_trakcie,
             "poprzedzone": skroc(ostatni_tekst_asystenta, 250)}))
@@ -384,7 +392,7 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                 if typ == "assistant":
                     dodaj_wywolanie(s.wywolania, wywolanie_api(d, czas, False))
                 else:
-                    przyczyna = przyczyna_wejscia(d)
+                    przyczyna = przyczyna_wejscia(d, narzedzia)
                     if przyczyna:
                         s.wejscia.append((czas, przyczyna))
             if czas is None or not (od <= czas < do):
@@ -413,6 +421,9 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                 napis = " ".join(x.get("text", "") for x in tresc if x.get("type") == "text")
                 if napis.strip():
                     ostatni_tekst_asystenta = napis
+                    if not s.znaki_odpowiedzi:
+                        s.znaki_odpowiedzi.append(0)      # odpowiedź na wiadomość sprzed okna
+                    s.znaki_odpowiedzi[-1] += len(napis.strip())
                 for x in tresc:
                     if x.get("type") != "tool_use":
                         continue
@@ -421,6 +432,8 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                     if nazwa in ("Agent", "Task"):
                         s.licz["podagenci"] += 1
                         s.podagenci[(wej.get("subagent_type") or "general-purpose", wej.get("model") or t("dziedziczony"))] += 1
+                        if isinstance(wej.get("prompt"), str):
+                            s.znaki_promptow.append(len(wej["prompt"]))
                     elif nazwa == "SendMessage":
                         s.licz["wiad_do_sesji"] += 1
                     elif nazwa == "Workflow":
@@ -583,6 +596,15 @@ def procent(czesc, calosc):
     return round(100 * czesc / calosc, 1) if calosc else None
 
 
+def znaki_korespondencji(sesje: list) -> dict:
+    """Mediana znaków tekstu sesji do właściciela na jego wiadomość (bez odpowiedzi samymi narzędziami) i mediana
+    długości promptu wywołań Agent/Task."""
+    odpowiedzi = [n for s in sesje for n in s.znaki_odpowiedzi if n]
+    prompty = [n for s in sesje for n in s.znaki_promptow]
+    return {"znaki_do_wlasciciela_na_wiadomosc": round(mediana(odpowiedzi)) if odpowiedzi else None,
+            "znaki_promptu_agenta": round(mediana(prompty)) if prompty else None}
+
+
 def metryki_tokenow(sesje: list, od, do, cennik: dict) -> dict:
     """Tokeny i koszt w oknie. Wywołanie API = unikalny message.id w całym zbiorze sesji (kopia w innej
     sesji, np. po rozwidleniu, liczy się raz, w sesji, która zaczęła się wcześniej)."""
@@ -652,10 +674,10 @@ def metryki_tokenow(sesje: list, od, do, cennik: dict) -> dict:
 
 # ---------------------------------------------------------------- git i GitHub
 
-def uruchom(polecenie, cwd):
+def uruchom(polecenie, cwd, env=None):
     try:
         r = subprocess.run(polecenie, cwd=cwd, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=120)
+                           encoding="utf-8", errors="replace", timeout=120, env=env)
         return r.returncode, r.stdout, r.stderr
     except (OSError, subprocess.TimeoutExpired) as e:
         return 1, "", str(e)
@@ -668,10 +690,11 @@ def bez_sesji(czas, aktywnosc: list) -> bool:
     return not (i < len(aktywnosc) and aktywnosc[i] <= czas + margines)
 
 
-def git_i_gh(repozytoria: dict, od, do, gh, aktywnosc: dict = None):
+def git_i_gh(repozytoria: dict, od, do, gh, aktywnosc: dict = None, konf: dict = None, srodowiska: dict = None):
     """Git i GitHub w oknie [od, do) (czas lokalny, z godziną). `aktywnosc`: nazwa repo -> posortowane czasy
-    zapisów lokalnych transkrypcji jego sesji (do commitów i PR-ów bez lokalnej sesji)."""
-    aktywnosc = aktywnosc or {}
+    zapisów lokalnych transkrypcji jego sesji (do commitów i PR-ów bez lokalnej sesji). `srodowiska`: nazwa repo ->
+    środowisko gh z tokenem repo (`wspolne.srodowisko_gh`); repo z `gh_pomin` bez zapytań gh."""
+    aktywnosc, konf, srodowiska = aktywnosc or {}, konf or {}, srodowiska or {}
     od_data, do_data = od.date(), (do - dt.timedelta(seconds=1)).date()
     wynik = {}
     for nazwa, sciezka in repozytoria.items():
@@ -704,11 +727,18 @@ def git_i_gh(repozytoria: dict, od, do, gh, aktywnosc: dict = None):
         if kod == 0:
             r["zmiany_regul"] = len(set(out.split()))
         kod, out, _ = uruchom(["git", "remote"], sciezka)
+        env = srodowiska.get(nazwa)
         if not out.strip():
             r["gh"] = t("gh_brak_zdalnego")
+        elif gh and wspolne.gh_pominiete(nazwa, sciezka, konf):
+            r["gh"] = t("gh_pominiete_konf")
         elif gh:
             kod, out, err = uruchom([gh, "pr", "list", "--state", "all", "--limit", "300",
-                                     "--json", "number,createdAt,mergedAt"], sciezka)
+                                     "--json", "number,createdAt,mergedAt"], sciezka, env)
+            if kod != 0 and wspolne.GH_BRAK_DOSTEPU.search(err):
+                r["gh"] = t("gh_brak_dostepu")
+                wynik[nazwa] = r
+                continue
             if kod == 0:
                 for pr in json.loads(out or "[]"):
                     utw = czas_lokalny(pr.get("createdAt") or "")
@@ -725,14 +755,14 @@ def git_i_gh(repozytoria: dict, od, do, gh, aktywnosc: dict = None):
             # Commity na PR (przybliżenie rund poprawek). GraphQL liczy węzły autorów: limit 40 mieści się w 500 tys.
             kod, out, err = uruchom([gh, "pr", "list", "--state", "merged", "--limit", "40",
                                      "--search", f"merged:{od_data.isoformat()}..{do_data.isoformat()}",
-                                     "--json", "number,commits"], sciezka)
+                                     "--json", "number,commits"], sciezka, env)
             if kod == 0:
                 lista = json.loads(out or "[]")
                 r["pr_commity"] = [len(pr.get("commits") or []) for pr in lista]
                 if len(lista) == 40:
                     r["gh"] = t("gh_40")
             kod, out, err = uruchom([gh, "run", "list", "--limit", "500",
-                                     "--json", "conclusion,createdAt"], sciezka)
+                                     "--json", "conclusion,createdAt"], sciezka, env)
             if kod == 0:
                 for run in json.loads(out or "[]"):
                     c = czas_lokalny(run.get("createdAt") or "")
@@ -1039,7 +1069,7 @@ def zakonczenie_retro(katalog, od_data):
 
 
 def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh, sesje, od, do, od_data, do_data,
-                       projekty):
+                       projekty, srodowiska: dict = None):
     """Dane sekcji „Tokeny i efektywność pisania”: koszt wg roli i poziomu rozumowania (z archiwów trendu), rundy
     poprawek scalonych PR (GitHub, kilka tygodni wstecz), powroty od przeglądu i CI oraz koszt agentów na PR
     (zdarzenia agentów lokalnie i ze źródeł zdalnych), konfiguracja agentów z `.claude/agents`, ich zmiany między
@@ -1052,18 +1082,28 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
     rekordy = [(nazwa, efektywnosc.rekordy_kosztu(ar.get("calls") or {}, cennik, wzorce)) for nazwa, ar in archiwa]
     if not archiwa:
         uwagi.append(t("ef_koszt_bez_trendu"))
+    katalogi_agentow = [(nazwa, pathlib.Path(sciezka) / ".claude" / "agents") for nazwa, sciezka in repozytoria.items()]
+    katalogi_agentow.append(("~/.claude", wspolne.katalog_claude() / "agents"))
+    definicje = agenci.wczytaj_definicje(katalogi_agentow)
+    migawki = agenci.wczytaj_migawki(katalog / agenci.PLIK_MIGAWKI) if katalog is not None else []
+    model_agenta = agenci.model_w_dniu(migawki, definicje)
     rundy, repo_gh = None, {}
     if gh:
         rundy = []
         for nazwa, r in repo.items():
-            if r["gh"] == t("gh_brak_zdalnego"):
+            if r["gh"] in (t("gh_brak_zdalnego"), t("gh_pominiete_konf"), t("gh_brak_dostepu")):
                 continue
-            lista, blad = efektywnosc.pr_commity(repozytoria[nazwa], od_tygodnia, do_data, gh)
+            lista, blad = efektywnosc.pr_commity(repozytoria[nazwa], od_tygodnia, do_data, gh,
+                                                 (srodowiska or {}).get(nazwa))
             if lista is None:
                 uwagi.append(t("ef_gh_blad", repo=nazwa, blad=zamaz(blad)[0]))
                 continue
             repo_gh[nazwa] = lista[0]["repo"] if lista else None
-            rundy += efektywnosc.rundy_pr(lista, konf)
+            rundy += efektywnosc.rundy_pr(lista, konf, model_agenta)
+        rozbiezne = [f"{r['repo']}#{r['pr']}" for r in rundy if r.get("rozbieznosc_modelu")]
+        if rozbiezne:
+            uwagi.append(t("ef_rozbieznosc_modelu", n=len(rozbiezne), lista=", ".join(rozbiezne[:5])
+                           + (", …" if len(rozbiezne) > 5 else "")))
     else:
         uwagi.append(t("ef_gh_pominiety"))
     # zdarzenia agentów: lokalne transkrypcje (od początku tygodni tabel) i źródła zdalne z `zdarzenia_*`;
@@ -1101,10 +1141,6 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
     uwagi = efektywnosc.ostrzezenia_repo(
         koszty, rundy, sorted({wlasciciel or nazwa for nazwa, wlasciciel in repo_gh.items()}),
         prog_usd=konf.get("ostrzezenie_koszt_tygodnia_usd") or efektywnosc.PROG_KOSZTU_TYGODNIA, od=od_data) + uwagi
-    katalogi_agentow = [(nazwa, pathlib.Path(sciezka) / ".claude" / "agents") for nazwa, sciezka in repozytoria.items()]
-    katalogi_agentow.append(("~/.claude", wspolne.katalog_claude() / "agents"))
-    definicje = agenci.wczytaj_definicje(katalogi_agentow)
-    migawki = agenci.wczytaj_migawki(katalog / agenci.PLIK_MIGAWKI) if katalog is not None else []
     zmiany = agenci.zmiany(migawki, definicje)
     starty = agenci.starty([d for d, _ in zdarzenia_zrodel], od, do)
     return {"wzorce": wzorce, "koszty": koszty, "rundy": rundy, "powroty": powroty, "uwagi": uwagi,
@@ -1248,7 +1284,8 @@ def main(argv=None):
                 repozytoria.setdefault(nazwa, str(pathlib.Path(sciezka).expanduser()))
     gh = None if a.bez_gh else wspolne.sciezka_gh(konf)
     aktywnosc = {nazwa: sorted(c for s in lista for c in s.czasy) for nazwa, lista in per_projekt.items()}
-    repo = git_i_gh(repozytoria, od, do, gh, aktywnosc)
+    srodowiska = {nazwa: wspolne.srodowisko_gh(sciezka, konf) for nazwa, sciezka in repozytoria.items()} if gh else {}
+    repo = git_i_gh(repozytoria, od, do, gh, aktywnosc, konf, srodowiska)
     regul = pliki_regul(repozytoria, konf)
     kopie_regul = podejrzane_kopie_regul(regul, repozytoria)
     projekty_folderow = {}
@@ -1260,7 +1297,7 @@ def main(argv=None):
         foldery = sorted(p for p in (wspolne.katalog_claude() / "projects").glob("*") if p.is_dir())
     pamiec_liczba, pamiec_zmiany, pamiec_bez_sesji = pamiec(foldery, od, projekty_folderow)
     ef = efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh, sesje, od, do, od_data, do_data,
-                            projekty)
+                            projekty, srodowiska)
     narzedzia = wyniki_narzedzi(sesje)
     kontekst = caveman.opisz(caveman.pliki_kontekstu(regul, repozytoria, foldery, katalog, konf), katalog, konf)
     (wyjscie / caveman.PLIK_LISTY).write_text(json.dumps(kontekst, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1307,6 +1344,8 @@ def main(argv=None):
         **tok["metryki"],
         "koszt_na_wiadomosc_usd": round(tok["koszt"] / suma["wiad_wlasciciela"], 2) if suma["wiad_wlasciciela"] else None,
         "tokeny_wyjscia_na_wiadomosc": round(tok["wyjscie_tokeny"] / suma["wiad_wlasciciela"]) if suma["wiad_wlasciciela"] else None,
+        # od 0.7.2: bezpośrednia miara stylu korespondencji (mediany znaków)
+        **znaki_korespondencji(sesje),
         "commity_bez_sesji": sum(r["commity_bez_sesji"] for r in repo.values()),
         "pr_bez_sesji": sum(r["pr_bez_sesji"] for r in repo.values()),
         "claude_md_linie_osobno": sum(n for _, _, n, osobno in regul if osobno),

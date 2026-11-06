@@ -32,7 +32,8 @@ RODZINY = ("fable", "mythos", "opus", "sonnet", "haiku")
 PRZERWA_RUNDY_MIN, MAX_COMMITOW, POMIN_GALEZIE, TYGODNIE = 20, 40, ["integration/", "batch/"], 6
 MAX_STRON_GH = 10
 # Porównanie z poprzednimi retro (kolumny `metryki.csv`); dla każdego wskaźnika więcej = gorzej.
-POROWNANIE = ["koszt_na_wiadomosc_usd", "tokeny_wyjscia_na_wiadomosc", "kontekst_mediana", "kontekst_ponad_200k_proc", "kontekst_startowy_mediana",
+POROWNANIE = ["koszt_na_wiadomosc_usd", "tokeny_wyjscia_na_wiadomosc", "znaki_do_wlasciciela_na_wiadomosc",
+              "znaki_promptu_agenta", "kontekst_mediana", "kontekst_ponad_200k_proc", "kontekst_startowy_mediana",
               "podagenci_opus_koszt_proc", "wybudzenia_koszt_usd", "pr_z_poprawka_proc", "rundy_na_pr",
               "powroty_przeglad", "powroty_ci", "koszt_na_pr_usd", "pliki_kontekstu_tokeny"]
 POPRZEDNIE_RETRO = 3
@@ -55,6 +56,9 @@ query($q: String!, $po: String) {
   }
 }"""
 WZOR_MODELU = re.compile(r"Co-Authored-By:\s*Claude\s+([A-Za-z]+)", re.I)
+# Stopka `Agent: <nazwa>` (od 0.7.2, konwencja opcjonalna): model brany z definicji agenta, mocniejszy od `Co-Authored-By`,
+# bo agent dziedziczący stopkę z szablonu podpisuje się modelem sesji, nie swoim.
+WZOR_AGENTA = re.compile(r"^Agent:\s*([\w.-]+)", re.I | re.M)
 
 
 # ---------------------------------------------------------------- role i modele
@@ -268,20 +272,20 @@ def konfiguracja_agentow(katalogi: list) -> list:
 
 # ---------------------------------------------------------------- rundy poprawek w scalonych PR
 
-def _uruchom(polecenie, cwd=None):
+def _uruchom(polecenie, cwd=None, env=None):
     try:
         r = subprocess.run(polecenie, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                           timeout=180)
+                           timeout=180, env=env)
         return r.returncode, r.stdout, r.stderr
     except (OSError, subprocess.TimeoutExpired) as e:
         return 1, "", str(e)
 
 
-def pr_commity(sciezka: str, od_data: dt.date, do_data: dt.date, gh: str):
+def pr_commity(sciezka: str, od_data: dt.date, do_data: dt.date, gh: str, env: dict = None):
     """Scalone PR repo z commitami (data autorstwa, nagłówek, modele ze stopek `Co-Authored-By: Claude <Model>`):
     (lista, None) albo (None, błąd). `gh api graphql` z wyszukiwaniem po 40, bo `gh pr list --json commits`
     przekracza limit węzłów GraphQL."""
-    kod, out, err = _uruchom([gh, "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], sciezka)
+    kod, out, err = _uruchom([gh, "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], sciezka, env)
     if kod != 0 or not out.strip():
         return None, (err or out).strip()[:160] or "gh repo view"
     repo, wynik, po = out.strip(), [], None
@@ -290,7 +294,7 @@ def pr_commity(sciezka: str, od_data: dt.date, do_data: dt.date, gh: str):
                "-f", f"q=repo:{repo} is:pr is:merged merged:{od_data.isoformat()}..{do_data.isoformat()}"]
         if po:
             arg += ["-f", "po=" + po]
-        kod, out, err = _uruchom(arg, sciezka)
+        kod, out, err = _uruchom(arg, sciezka, env)
         if kod != 0:
             return None, err.strip()[:160]
         try:
@@ -302,7 +306,8 @@ def pr_commity(sciezka: str, od_data: dt.date, do_data: dt.date, gh: str):
                 continue
             commity = [{"ts": c["commit"]["authoredDate"], "naglowek": c["commit"]["messageHeadline"][:90],
                         "scalenie": c["commit"]["parents"]["totalCount"] > 1,
-                        "modele": sorted({rodzina(m) for m in WZOR_MODELU.findall(c["commit"].get("messageBody") or "")})}
+                        "modele": sorted({rodzina(m) for m in WZOR_MODELU.findall(c["commit"].get("messageBody") or "")}),
+                        "agent": (WZOR_AGENTA.findall(c["commit"].get("messageBody") or "") or [None])[-1]}
                        for c in n["commits"]["nodes"]]
             wynik.append({"repo": repo, "pr": n["number"], "utworzony": n["createdAt"], "scalony": n["mergedAt"],
                           "galaz": n["headRefName"], "commitow": n["commits"]["totalCount"], "commity": commity,
@@ -313,9 +318,21 @@ def pr_commity(sciezka: str, od_data: dt.date, do_data: dt.date, gh: str):
     return wynik, None
 
 
-def rundy_pr(lista: list, konf: dict) -> list:
+def modele_commita(c: dict, model_agenta=None) -> tuple:
+    """(modele commita, rozbieżność). Ze stopką `Agent:` i znanym modelem agenta w dniu commita: model agenta;
+    inaczej modele ze stopek `Co-Authored-By`. Rozbieżność: obie stopki są, a model agenta nie jest wśród nich."""
+    czas = tokeny.czas_lokalny(c["ts"])
+    model = model_agenta(c["agent"], czas.date()) if model_agenta and c.get("agent") and czas else None
+    if not model:
+        return c["modele"], False
+    model = rodzina(model)
+    return [model], bool(c["modele"]) and model not in c["modele"]
+
+
+def rundy_pr(lista: list, konf: dict, model_agenta=None) -> list:
     """Rundy poprawek każdego PR: paczka commitów po przerwie > `pr_przerwa_rundy_min` to runda; pierwsza paczka to
-    praca, kolejne to powroty. Model autora = najczęstsza stopka w pierwszej paczce (None = bez stopki)."""
+    praca, kolejne to powroty. Model autora = najczęstszy model pierwszej paczki (None = bez stopki), z
+    `modele_commita`: `model_agenta(nazwa, data)` daje model agenta ze stopki `Agent:` (`agenci.model_w_dniu`)."""
     przerwa = dt.timedelta(minutes=konf.get("pr_przerwa_rundy_min") or PRZERWA_RUNDY_MIN)
     pomin = tuple(POMIN_GALEZIE if konf.get("pr_pomin_galezie") is None else konf["pr_pomin_galezie"])
     maks = konf.get("pr_max_commitow") or MAX_COMMITOW
@@ -328,8 +345,10 @@ def rundy_pr(lista: list, konf: dict) -> list:
         scalony, utworzony = tokeny.czas_lokalny(p["scalony"] or ""), tokeny.czas_lokalny(p["utworzony"] or "")
         if not wlasne or not scalony:
             continue
-        rundy, poprzedni = [[]], None
+        rundy, poprzedni, rozbieznosc = [[]], None, False
         for c in wlasne:
+            modele, rozb = modele_commita(c, model_agenta)
+            c, rozbieznosc = dict(c, modele=modele), rozbieznosc or rozb
             czas = tokeny.czas_lokalny(c["ts"])
             if poprzedni and czas and czas - poprzedni > przerwa:
                 rundy.append([])
@@ -341,7 +360,7 @@ def rundy_pr(lista: list, konf: dict) -> list:
                       "autor": autor, "rundy": len(rundy) - 1, "commity": len(wlasne),
                       "poprawki": collections.Counter((autor, m) for r in rundy[1:] for c in r for m in c["modele"] or [None]),
                       "h": (scalony - utworzony).total_seconds() / 3600 if utworzony else None,
-                      "linie": p.get("linie"), "pliki": p.get("pliki")})
+                      "linie": p.get("linie"), "pliki": p.get("pliki"), "rozbieznosc_modelu": rozbieznosc})
     return wynik
 
 
