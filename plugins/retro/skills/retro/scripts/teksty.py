@@ -196,6 +196,8 @@ TEKSTY = {
     "przyczyna_sesja": {"pl": "inna sesja", "en": "another session"},
     "przyczyna_inne": {"pl": "inne (np. wynik narzędzia po długim czekaniu)",
                        "en": "other (e.g. a tool result after a long wait)"},
+    "przyczyna_odpowiedz": {"pl": "odpowiedź na pytanie (AskUserQuestion zadane przed przerwą)",
+                            "en": "answer to a question (AskUserQuestion asked before the break)"},
 
     # sygnaly.py: odrzucone i nieudane wywołania narzędzi (od 0.5.0)
     "narz_tytul": {"pl": "## Wywołania narzędzi: odrzucone i nieudane", "en": "## Tool calls: refused and failed"},
@@ -337,6 +339,11 @@ TEKSTY = {
               "the subagent's report. Few PRs of one model (< 5) are a hint, not a result."},
     "ef_gh_pominiety": {"pl": "Rundy poprawek pominięte (brak gh albo `--bez-gh`).",
                         "en": "Fix rounds skipped (no gh or `--bez-gh`)."},
+    "ef_rozbieznosc_modelu": {
+        "pl": "Model autora: {n} PR ze stopką `Agent:`, której model agenta nie zgadza się z `Co-Authored-By` "
+              "(liczony model agenta): {lista}.",
+        "en": "Author model: {n} PRs with an `Agent:` trailer whose agent model differs from `Co-Authored-By` "
+              "(the agent model is used): {lista}."},
     "ef_gh_blad": {"pl": "Rundy poprawek `{repo}`: błąd gh ({blad}).", "en": "Fix rounds `{repo}`: gh error ({blad})."},
     "ef_koszt_bez_trendu": {"pl": "Koszt wg roli pominięty: wymaga archiwum trendu (bez `--bez-trendu` i `--projekt`).",
                             "en": "Cost by role skipped: it needs the trend archive (without `--bez-trendu` and `--projekt`)."},
@@ -615,6 +622,9 @@ TEKSTY = {
     "gh_brak_zdalnego": {"pl": "brak zdalnego", "en": "no remote"},
     "gh_blad": {"pl": "błąd: {blad}", "en": "error: {blad}"},
     "gh_40": {"pl": "ok (commity/PR z 40 najnowszych)", "en": "ok (commits/PR from the 40 newest)"},
+    "gh_pominiete_konf": {"pl": "pominięte (`gh_pomin`)", "en": "skipped (`gh_pomin`)"},
+    "gh_brak_dostepu": {"pl": "brak dostępu tokena (zob. `gh_token_z_credential`, `gh_pomin`)",
+                        "en": "token has no access (see `gh_token_z_credential`, `gh_pomin`)"},
     "pods_poza": {
         "pl": "**Uwaga:** część pracy w repozytoriach nie ma lokalnych transkrypcji (brak zapisu sesji tego repo "
               "w odstępie ±{margines} min): {lista}. To zwykle sandbox, sesje w chmurze, inna maszyna albo scalenia na "

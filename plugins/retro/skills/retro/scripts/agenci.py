@@ -112,6 +112,32 @@ def _wiersz(retro: str, data: str, d: dict) -> dict:
     return w
 
 
+def model_w_dniu(migawki: list, definicje: list):
+    """Funkcja (agent, data) -> model agenta (pole `model` definicji) w dniu `data` albo None (agent nieznany albo
+    `inherit`).
+    Stan w dniu = pierwsza migawka od tego dnia (albo obecna definicja), jeśli plik nie zmienił się później
+    (`zmieniony` ≤ data); inaczej ostatnia migawka sprzed tego dnia."""
+    stany = collections.defaultdict(list)
+    dzis = dt.date.today()
+    for w in migawki:
+        stany[w.get("agent")].append((_data(w.get("data")) or dt.date.min, _data(w.get("zmieniony")), w.get("model")))
+    for d in definicje:
+        stany[d.get("agent")].append((dzis, _data(d.get("zmieniony")), d.get("model")))
+    for lista in stany.values():
+        lista.sort(key=lambda x: x[0])
+
+    def model(agent, data):
+        lista = stany.get(agent) or []
+        nast = next((x for x in lista if x[0] >= data), None)
+        if nast and nast[1] and nast[1] > data:
+            nast = None
+        stan = nast or next((x for x in reversed(lista) if x[0] < data), None)
+        if not stan or not stan[2] or stan[2] == "inherit":
+            return None
+        return stan[2]
+    return model
+
+
 def _ostatnie(wiersze: list) -> dict:
     ost = {}
     for w in wiersze:

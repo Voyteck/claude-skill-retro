@@ -2007,5 +2007,101 @@ class Test071(Srodowisko):
         self.assertIn("tokeny_wyjscia_na_wiadomosc", efektywnosc.POROWNANIE)
 
 
+class Test072(Srodowisko):
+    """Zmiany 0.7.2: miara stylu korespondencji, odpowiedź na pytanie jako przyczyna wybudzenia, token gh per repo,
+    model autora ze stopki `Agent:`."""
+
+    sygnaly = TestSygnalyUzupelnienia.sygnaly
+
+    def test_znaki_korespondencji(self):
+        _, m = self.sygnaly()
+        self.assertEqual(m["znaki_do_wlasciciela_na_wiadomosc"], len("Pytam."))
+        self.assertEqual(m["znaki_promptu_agenta"], 1)
+        self.assertEqual(m["wybudzenia_odpowiedz"], 0)
+        import efektywnosc
+        self.assertTrue({"znaki_do_wlasciciela_na_wiadomosc", "znaki_promptu_agenta"} <= set(efektywnosc.POROWNANIE))
+
+    def test_odpowiedz_na_pytanie(self):
+        import sygnaly
+        wynik = {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "q1", "content": "x"}]}}
+        self.assertEqual(sygnaly.przyczyna_wejscia(wynik, {"q1": ("AskUserQuestion", {})}), "odpowiedz")
+        self.assertEqual(sygnaly.przyczyna_wejscia(wynik, {"q1": ("Bash", {})}), "inne")
+        self.assertEqual(sygnaly.przyczyna_wejscia(wynik), "inne")
+        self.assertIn("odpowiedz", sygnaly.PRZYCZYNY_WYBUDZEN)
+
+    def git(self, *argumenty):
+        subprocess.run(["git", "-C", str(self.repo), *argumenty], check=True, capture_output=True)
+
+    def test_repo_zdalne_i_pomin(self):
+        self.assertEqual(wspolne.repo_zdalne(self.repo), (None, None))
+        self.git("remote", "add", "origin", "git@github.com:Wl/Repo.git")
+        self.assertEqual(wspolne.repo_zdalne(self.repo), ("github.com", "Wl/Repo"))
+        self.assertTrue(wspolne.gh_pominiete("repo", self.repo, {"gh_pomin": ["wl/repo"]}))
+        self.assertTrue(wspolne.gh_pominiete("repo", self.repo, {"gh_pomin": ["REPO"]}))
+        self.assertFalse(wspolne.gh_pominiete("repo", self.repo, {"gh_pomin": ["inne"]}))
+
+    def test_token_z_credential(self):
+        self.git("remote", "add", "origin", "https://github.com/wl/repo.git")
+        self.git("config", "credential.helper", "")                      # bez helperów globalnych
+        self.assertIsNone(wspolne.srodowisko_gh(self.repo, {"gh_token_z_credential": True}))   # bez pytania w terminalu
+        self.git("config", "--add", "credential.helper", "!f() { echo username=x; echo password=tok123; }; f")
+        self.assertIsNone(wspolne.srodowisko_gh(self.repo, {}))           # domyślnie wyłączone
+        env = wspolne.srodowisko_gh(self.repo, {"gh_token_z_credential": True})
+        self.assertEqual(env["GH_TOKEN"], "tok123")
+
+    @unittest.skipIf(os.name == "nt", "atrapa gh to skrypt sh")
+    def test_gh_z_tokenem_brak_dostepu_i_pomin(self):
+        import sygnaly
+        self.git("remote", "add", "origin", "https://github.com/wl/repo.git")
+        slad = self.tmp / "token.txt"
+        gh = self.tmp / "gh"
+        gh.write_text(f'#!/bin/sh\nprintf "%s" "$GH_TOKEN" > "{slad}"\n'
+                      'if [ "$GH_TOKEN" = "zly" ]; then echo "GraphQL: Could not resolve to a Repository with the '
+                      'name \'wl/repo\'. (repository)" >&2; exit 1; fi\necho "[]"\n', encoding="utf-8")
+        gh.chmod(0o755)
+        od = dt.datetime.now() - dt.timedelta(days=1)
+        do = dt.datetime.now() + dt.timedelta(hours=1)
+        repo = {"repo": str(self.repo)}
+        r = sygnaly.git_i_gh(repo, od, do, str(gh), srodowiska={"repo": dict(os.environ, GH_TOKEN="dobry")})
+        self.assertEqual((r["repo"]["gh"], slad.read_text()), (sygnaly.t("gh_ok"), "dobry"))
+        r = sygnaly.git_i_gh(repo, od, do, str(gh), srodowiska={"repo": dict(os.environ, GH_TOKEN="zly")})
+        self.assertEqual(r["repo"]["gh"], sygnaly.t("gh_brak_dostepu"))
+        self.assertNotIn("zly", json.dumps(r, default=str))
+        slad.unlink()
+        r = sygnaly.git_i_gh(repo, od, do, str(gh), konf={"gh_pomin": ["wl/repo"]})
+        self.assertEqual(r["repo"]["gh"], sygnaly.t("gh_pominiete_konf"))
+        self.assertFalse(slad.exists())                                  # gh nie uruchomiony
+
+    def test_model_ze_stopki_agenta(self):
+        import agenci
+        import efektywnosc as ef
+        migawki = [{"retro": "R01", "data": "2026-10-10", "agent": "prog", "model": "opus", "zmieniony": "2026-10-01"},
+                   {"retro": "R02", "data": "2026-10-20", "agent": "prog", "model": "sonnet", "zmieniony": "2026-10-15"}]
+        definicje = [{"agent": "prog", "model": "sonnet", "zmieniony": "2026-10-15"},
+                     {"agent": "dziedzic", "model": "inherit", "zmieniony": "2026-10-01"}]
+        model = agenci.model_w_dniu(migawki, definicje)
+        self.assertEqual(model("prog", dt.date(2026, 10, 5)), "opus")
+        self.assertEqual(model("prog", dt.date(2026, 10, 12)), "opus")     # zmiana 10-15: stan sprzed niej
+        self.assertEqual(model("prog", dt.date(2026, 10, 16)), "sonnet")
+        self.assertIsNone(model("dziedzic", dt.date(2026, 10, 16)))
+        self.assertIsNone(model("nieznany", dt.date(2026, 10, 16)))
+        iso = lambda d, h: f"2026-10-{d:02d}T{h:02d}:00:00Z"  # noqa: E731
+        commit = lambda d, h, modele, agent=None: {"ts": iso(d, h), "naglowek": "feat", "scalenie": False,  # noqa: E731
+                                                   "modele": modele, "agent": agent}
+        lista = [
+            {"repo": "w/r", "pr": 1, "utworzony": iso(16, 9), "scalony": iso(16, 12), "galaz": "a", "commitow": 1,
+             "commity": [commit(16, 10, ["Opus"], "prog")]},                # podpis Opus, agent na Sonnecie
+            {"repo": "w/r", "pr": 2, "utworzony": iso(16, 9), "scalony": iso(16, 12), "galaz": "b", "commitow": 1,
+             "commity": [commit(16, 10, ["Opus"], "dziedzic")]},            # inherit: stopka Co-Authored-By
+            {"repo": "w/r", "pr": 3, "utworzony": iso(16, 9), "scalony": iso(16, 12), "galaz": "c", "commitow": 1,
+             "commity": [commit(16, 10, [], "prog")]},
+        ]
+        rundy = {r["pr"]: r for r in ef.rundy_pr(lista, {}, model)}
+        self.assertEqual([(rundy[n]["autor"], rundy[n]["rozbieznosc_modelu"]) for n in (1, 2, 3)],
+                         [("Sonnet", True), ("Opus", False), ("Sonnet", False)])
+        self.assertEqual(ef.rundy_pr(lista, {})[0]["autor"], "Opus")      # bez definicji: jak dotąd
+        self.assertEqual(ef.WZOR_AGENTA.findall("x\n\nAgent: prog-1\nCo-Authored-By: Claude Opus"), ["prog-1"])
+
+
 if __name__ == "__main__":
     unittest.main()

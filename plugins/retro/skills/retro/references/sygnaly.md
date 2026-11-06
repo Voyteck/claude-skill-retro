@@ -57,6 +57,8 @@ Columns since 0.1.3 (in `metryki.csv` at the end, after `zobowiazania_aktywne`; 
 | `wywolania_api` | unique `message.id` in the window, sessions and subagents | see "Tokens and cost" |
 | `koszt_api_usd` | tokens × API prices from `references/cennik.json` | relative measure, lower bound |
 | `koszt_na_wiadomosc_usd` | `koszt_api_usd` / `wiad_wlasciciela` | comparable between retros when the price list is the same |
+| `znaki_do_wlasciciela_na_wiadomosc` (since 0.7.2) | median characters of main-session text (without tool calls) between consecutive user messages; replies with tools only are skipped | direct measure of the communication style; output tokens are mostly tool calls and thinking |
+| `znaki_promptu_agenta` (since 0.7.2) | median length of `prompt` of `Agent`/`Task` calls in the main session | measure of the style of messages to agents |
 | `tokeny_wyjscia_na_wiadomosc` | output tokens of the window (main session and subagents) / `wiad_wlasciciela` | measure of the communication style (since 0.7.1); depends on the kind of work, so compare within one machine and over several retros |
 | `kontekst_mediana` | median context (input + cache write + cache read) of main-session calls | context size × number of calls is the main cost |
 | `kontekst_ponad_200k_proc` | share of main-session calls with context > 200k | |
@@ -67,6 +69,7 @@ Columns since 0.1.3 (in `metryki.csv` at the end, after `zobowiazania_aktywne`; 
 | `commity_bez_sesji`, `pr_bez_sesji` | commits (committer time) and opened PRs without a local transcript of a session in that repo within ±30 min | work in a sandbox, cloud, another machine, merges on GitHub; the summary warns when it is ≥ 20% (and ≥ 3 commits or ≥ 2 PRs) |
 | `claude_md_linie_osobno` | lines of rules files in `katalogi_regul_osobno` | e.g. copies of `CLAUDE.md` kept in one repo for future repositories |
 | `wybudzenia_wlasciciel`, `wybudzenia_tlo`, `wybudzenia_sesja`, `wybudzenia_inne` (since 0.2.1) | `wybudzenia` split by the first input after the break: the user's message; a background task or subagent (`<task-notification>`, `queue-operation`, "[Subagent hand-back]"); another session (`peer`, `<agent-message>`, `<cross-session-message>`, `<side-sessions-event>`, a system reminder about sessions); anything else (e.g. a tool result after a long foreground wait or API retries) | a hook on the user's message (`UserPromptSubmit`) can only act on the first kind; system reminders the app prepends to a message are skipped when classifying |
+| `wybudzenia_odpowiedz` (since 0.7.2) | wake-ups by the user's answer to `AskUserQuestion` (a tool result of that tool), earlier counted as `wybudzenia_inne` | a question asked right before a long break costs a full cache write when answered: ask before the break is likely, or end the turn without a question |
 | `pr_analizowane`, `pr_z_poprawka_proc`, `rundy_na_pr` (since 0.3.0) | PRs merged in the window on GitHub (repos of the window with a remote), the share with at least one fix round, mean rounds per PR | see "Tokens and writing efficiency"; empty without `gh` |
 | `pr_wg_modelu`, `pr_z_poprawka_proc_wg_modelu` (since 0.3.0) | the same by author model, as text `Opus:71;Fable:27` (share of PRs, % with a fix) | `bez stopki` = no `Co-Authored-By: Claude` trailer |
 | `powroty_przeglad`, `powroty_ci` (since 0.3.0) | returns of an implementer to the same PR after a negative review or red CI, local transcripts plus remote agent events | the main session fixing its own PR is not a return |
@@ -142,7 +145,12 @@ section 2a of the retro document.
 - **Fix rounds in merged PRs:** `gh api graphql` (search, 40 PRs per page, at most 10 pages per repo; `gh pr list
   --json commits` exceeds the GraphQL node limit). Commits sorted by author date (robust to rebase), without merge
   commits; a batch after a break longer than `pr_przerwa_rundy_min` is a round. The author model is the most frequent
-  `Co-Authored-By: Claude <Model>` trailer in the first batch. Skipped: branches with prefixes from
+  model of the first batch. A commit's model: with an `Agent: <name>` trailer (optional convention, since 0.7.2) the
+  `model` of that agent's definition on the commit date (`agenci.csv` snapshots and current definitions; the first
+  snapshot from that day unless the file changed later, otherwise the last earlier one); without the trailer, or for
+  an unknown or `inherit` agent, the `Co-Authored-By: Claude <Model>` trailers. An agent copying the trailer from a
+  template signs with the session's model, so the `Agent:` trailer is recommended; the summary lists PRs where both
+  trailers disagree. Skipped: branches with prefixes from
   `pr_pomin_galezie`, PRs with more than `pr_max_commitow` commits. "Who wrote the fix commits" pairs the author model
   with the model of each fix commit.
 - **Returns in transcripts:** `scripts/zdarzenia_agentow.py` reads subagent starts (`Agent`/`Task`: type, resolved
@@ -280,5 +288,6 @@ time.
   drop out.
 - **The transcript format** is not a public Claude Code API and may change. When numbers suddenly drop to zero,
   check the script against a fresh transcript.
-- **GitHub** only through `gh` logged in to an account with access to the repo; a repo without a remote is counted
-  from git only.
+- **GitHub** only through `gh` logged in to an account with access to the repo (or a per-repo token from
+  `gh_token_z_credential`); a repo the token cannot see is labelled "token has no access" instead of a GraphQL error.
+  A repo without a remote is counted from git only.
