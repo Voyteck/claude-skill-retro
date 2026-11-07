@@ -35,7 +35,8 @@ MAX_STRON_GH = 10
 POROWNANIE = ["koszt_na_wiadomosc_usd", "tokeny_wyjscia_na_wiadomosc", "znaki_do_wlasciciela_na_wiadomosc",
               "znaki_promptu_agenta", "kontekst_mediana", "kontekst_ponad_200k_proc", "kontekst_startowy_mediana",
               "podagenci_opus_koszt_proc", "wybudzenia_koszt_usd", "pr_z_poprawka_proc", "rundy_na_pr",
-              "powroty_przeglad", "powroty_ci", "koszt_na_pr_usd", "pliki_kontekstu_tokeny"]
+              "powroty_przeglad", "powroty_ci", "koszt_na_pr_usd", "pliki_kontekstu_tokeny",
+              "ops_glowna_proc", "zadania_na_sesje_mediana"]
 POPRZEDNIE_RETRO = 3
 # Rozmiar PR (dodane + usunięte linie): S do pierwszego progu, M do drugiego, L powyżej.
 PROGI_ROZMIARU = [50, 300]

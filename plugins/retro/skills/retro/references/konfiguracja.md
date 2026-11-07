@@ -33,6 +33,7 @@ defaults from `scripts/wspolne.py` (`DOMYSLNA_KONFIGURACJA`). Change it by hand 
 | `pr_pomin_galezie` | `["integration/", "batch/"]` | head branch prefixes skipped in fix rounds (integration batches) |
 | `pr_progi_rozmiaru` | `[50, 300]` | PR size buckets in lines (additions + deletions): S up to the first, M up to the second, L above (since 0.4.0) |
 | `ostrzezenie_koszt_tygodnia_usd` | `100` | from this weekly cost (USD, all sources) the summary warns about no merged PRs in tracked repos, or a cost per PR 3 times the other weeks: work may have moved to an untracked repo (since 0.7.0) |
+| `ops_prog_proc`, `ops_prog_usd` | `10`, `1` | audit candidate for the operator role (since 0.8.0): main-session CI/deploy share of a project's cost above `ops_prog_proc` %, or no ops agent (or none on Haiku), when the project's ops cost reaches `ops_prog_usd`; see `references/sygnaly.md`, "CI and deploy steps" |
 | `caveman` | `standard` | compression level of context files (since 0.6.0): `wyl` (off: sizes only), `lekki` (lite), `standard`, `ultra`; rules in `references/caveman.md` |
 | `komunikacja_poziom` | `normalny` | style of messages to the user (since 0.7.1): `normalny` (plain), `caveman`, `ultra`; rules in `references/caveman.md`, "Communication style" |
 | `komunikacja_jezyk` | `""` (= `jezyk`) | language of messages to the user, any language code; documents stay in `jezyk` |

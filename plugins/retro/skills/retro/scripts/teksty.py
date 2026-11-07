@@ -705,6 +705,44 @@ TEKSTY = {
                           "en": "No retro working directory found (--katalog)."},
     "dop_brak_metryk": {"pl": "Brak dane/sygnaly-*/metryki.json: uruchom najpierw sygnaly.py albo podaj --metryki.",
                         "en": "No dane/sygnaly-*/metryki.json: run sygnaly.py first or pass --metryki."},
+
+    # operacje.py (od 0.8.0): kroki CI i deploy
+    "op_tytul": {"pl": "## Kroki CI i deploy: sesja główna a podagenci",
+                 "en": "## CI and deploy steps: main session vs subagents"},
+    "op_opis": {
+        "pl": "Wywołanie API jest krokiem CI, gdy jego polecenie Bash/PowerShell pasuje do `gh run|workflow|pr checks`, "
+              "a krokiem deploy/ops przy `ssh`, `scp`, `docker`, `systemctl`, `deploy…` itp. (`references/sygnaly.md`); "
+              "liczy się cały koszt wywołania. Zasada Z-012: CI i deploy tylko przez podagenta Haiku, handoff po "
+              "~{prog} wywołaniach sesji głównej. Kandydat do audytu agentów projektu (project-agents, rola "
+              "operatora), gdy koszt ops sięga ${prog_usd}: ops w sesjach głównych > {prog_proc}% kosztu projektu, "
+              "brak agenta ops w `.claude/agents` projektu albo agent ops nie na Haiku.",
+        "en": "An API call is a CI step when its Bash/PowerShell command matches `gh run|workflow|pr checks`, and "
+              "a deploy/ops step for `ssh`, `scp`, `docker`, `systemctl`, `deploy…` etc. (`references/sygnaly.md`); "
+              "the whole cost of the call counts. Rule Z-012: CI and deploy only via a Haiku subagent, handoff after "
+              "~{prog} main-session calls. Candidate for a project agents audit (project-agents, operator role) when "
+              "ops cost reaches ${prog_usd}: ops in main sessions > {prog_proc}% of the project's cost, no ops agent "
+              "in the project's `.claude/agents`, or an ops agent not on Haiku."},
+    "op_suma": {
+        "pl": "Ops razem ${ops}, w sesjach głównych ${glowna} ({udzial} kosztu okna, z tego CI ${ci}); podagenci "
+              "zrobili {pod} kosztu ops. Mediana wywołań na sesję główną: {mediana}; sesji ponad {prog}: {ponad}.",
+        "en": "Ops total ${ops}, in main sessions ${glowna} ({udzial} of the window's cost, CI ${ci} of it); "
+              "subagents did {pod} of the ops cost. Median calls per main session: {mediana}; sessions over {prog}: "
+              "{ponad}."},
+    "op_globalni": {"pl": "Agenci ops w `~/.claude/agents` (dla wszystkich projektów): {lista}.",
+                    "en": "Ops agents in `~/.claude/agents` (for all projects): {lista}."},
+    "op_kolumny": {
+        "pl": "| projekt | koszt | główna CI / deploy | podagenci CI / deploy | ops główna % | sesje | mediana "
+              "wywołań | sesje > 150 | agenci ops | kandydat |",
+        "en": "| project | cost | main CI / deploy | subagents CI / deploy | ops main % | sessions | median calls "
+              "| sessions > 150 | ops agents | candidate |"},
+    "op_powod_udzial": {"pl": "udział ops", "en": "ops share"},
+    "op_powod_brak_agenta": {"pl": "brak agenta ops", "en": "no ops agent"},
+    "op_powod_nie_haiku": {"pl": "agent ops nie na Haiku", "en": "ops agent not on Haiku"},
+    "op_kandydaci": {
+        "pl": "**Kandydaci do audytu agentów projektu (rola operatora):** {lista}. Propozycja zmiany: uruchomić "
+              "w projekcie skill project-agents (audyt, rola operatora).",
+        "en": "**Candidates for a project agents audit (operator role):** {lista}. Proposed change: run the "
+              "project-agents skill in the project (audit, operator role)."},
 }
 
 

@@ -22,6 +22,11 @@ Since 0.7.0 the retro **closes with a results table in the chat**: cost and toke
 rounds per PR, split by author model, PR size and reasoning effort, against the previous 2–3 retros, with samples under
 5 PRs marked. The summary warns when a week's cost is high but tracked repos show few PRs (work may have moved).
 
+Since 0.8.0 the retro **measures CI and deploy steps per project**: the cost of calls that watch CI (`gh run`,
+`gh pr checks`) or run ops commands (`ssh`, `docker`, `systemctl`…) in main sessions against subagents, the median
+calls per main session, and the projects without an ops agent (Haiku `operator` / `obserwator-ci`) as candidates for
+a project-agents audit.
+
 Since 0.7.2 the retro **measures the correspondence style directly** (median characters of text to the user and of
 agent prompts), counts wake-ups by an answer to `AskUserQuestion` separately, takes the PR author model from an optional
 `Agent: <name>` trailer, and labels repos the `gh` token cannot see (optional per-repo token from `git credential fill`).

@@ -86,6 +86,35 @@ Columns since 0.1.3 (in `metryki.csv` at the end, after `zobowiazania_aktywne`; 
 | `pr_bez_agenta_proc` (since 0.6.0) | share of PRs merged in the window without an implementation subagent | main session or work outside the visible transcripts; empty without `gh` |
 | `pliki_kontekstu`, `pliki_kontekstu_tokeny` (since 0.6.0) | context files (rules, agents, memory, `nauki.md`, custom skills and commands) and their size in characters / 4 | plugin files excluded; compared with previous retros (more = worse) |
 | `caveman_do_kompresji`, `caveman_do_kompresji_tokeny` (since 0.6.0) | those not compressed at the configured level (never, changed after compression, another level) | empty with `caveman`: `wyl` |
+| `ops_koszt_usd`, `ops_glowna_koszt_usd`, `ci_glowna_koszt_usd` (since 0.8.0) | cost of CI and deploy/ops calls in the window (main session and subagents), of those in main sessions, of CI calls in main sessions | see "CI and deploy steps" |
+| `ops_glowna_proc` (since 0.8.0) | `ops_glowna_koszt_usd` / `koszt_api_usd` | rule Z-012 headline; compared with previous retros (more = worse) |
+| `ops_podagenci_proc` (since 0.8.0) | subagents' share of the ops cost | more = better (not in the comparison, which assumes more = worse) |
+| `ops_glowna_wg_projektu` (since 0.8.0) | main-session ops share of each project's cost, `minos:33;blog:29` (projects with ≥ $0.50 main-session ops) | trend per project across retros |
+| `ops_kandydaci_audytu` (since 0.8.0) | projects flagged for a project-agents audit (operator role) | criteria in "CI and deploy steps" |
+| `zadania_na_sesje_mediana`, `sesje_ponad_150_zadan` (since 0.8.0) | median API calls of a main session (the whole session, also before the window, for sessions with main-session calls in the window); sessions over 150 | rule Z-012: handoff after ~150 requests; the median is compared with previous retros |
+
+## CI and deploy steps: main session vs subagents (since 0.8.0)
+
+`scripts/operacje.py`, summary section „Kroki CI i deploy: sesja główna a podagenci”, `operacje.json` in the output
+directory (rows per project).
+
+- **Classifier.** Each `tool_use` of `Bash` or `PowerShell` (main session and subagents) is matched on its `command`:
+  CI = `\bgh (run|workflow|pr checks)\b`; deploy/ops =
+  `\b(ssh|scp|rsync|docker|compose|systemctl|journalctl|ansible|kubectl|deploy\w*|wrangler|terraform|certbot|nginx|caddy|apt(-get)?|ufw|sftp)\b`
+  (case-insensitive). A command
+  matching both is CI. An API call (unique `message.id`, deduplicated like "Tokens and cost") is an ops call when any
+  of its commands matches; with both kinds it is deploy. The **whole** cost of the call counts: that is what a main
+  session with a large context pays when it watches CI or logs into a server itself.
+- **Heuristic.** `grep deploy`, `cat nginx.conf` or a path with `docker` also match. Compare projects and retros, not
+  the absolute amount.
+- **Per project:** cost, CI / deploy cost in main sessions and in subagents, main-session ops share of the project's
+  cost, sessions, median and count of sessions over 150 calls, ops agents of the project.
+- **Ops agent** = an agent definition in the project's `.claude/agents` whose `name` or file name contains
+  `operator`, `obserwator`, `ci-watch`, or a `ci` / `ops` / `deploy…` segment (Z-012 roles `obserwator-ci`,
+  `operator`). Agents in `~/.claude/agents` are listed separately and do not clear a project.
+- **Audit candidate** (project-agents skill, operator role), only for projects with a repo and an ops cost from
+  `ops_prog_usd` (default $1): main-session ops share > `ops_prog_proc` (default 10%), no ops agent in the project,
+  or no ops agent on Haiku.
 
 ## Tool calls, cloud sessions and the plan (since 0.5.0)
 

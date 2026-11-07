@@ -2103,5 +2103,129 @@ class Test072(Srodowisko):
         self.assertEqual(ef.WZOR_AGENTA.findall("x\n\nAgent: prog-1\nCo-Authored-By: Claude Opus"), ["prog-1"])
 
 
+class Test080Operacje(Srodowisko):
+    """Zmiany 0.8.0: koszt kroków CI i deploy w sesjach głównych a u podagentów, per projekt (zasada Z-012)."""
+
+    dopisz = TestSygnalyUzupelnienia.dopisz
+    sygnaly = TestSygnalyUzupelnienia.sygnaly
+
+    def test_klasyfikator(self):
+        import operacje as op
+        bash = lambda polecenie, nazwa="Bash": op.rodzaj_polecenia(nazwa, {"command": polecenie})  # noqa: E731
+        self.assertEqual(bash("gh run watch 123 --exit-status"), "ci")
+        self.assertEqual(bash("gh pr checks 17"), "ci")
+        self.assertEqual(bash("GH_PAGER= gh workflow run deploy.yml"), "ci")            # oba wzorce: CI
+        self.assertEqual(bash("ssh cp-dev 'docker ps'"), "deploy")
+        self.assertEqual(bash("Get-Content a.txt; scp a.txt host:/tmp", "PowerShell"), "deploy")
+        self.assertEqual(bash("sudo systemctl restart caddy"), "deploy")
+        self.assertEqual(bash("./deployment.sh"), "deploy")
+        self.assertEqual(bash("apt-get install -y jq"), "deploy")
+        for nic in ("git status", "gh pr create --fill", "gh pr view 3", "sshd -T", "py testy.py"):
+            self.assertIsNone(bash(nic), nic)
+        self.assertIsNone(op.rodzaj_polecenia("Edit", {"command": "ssh x"}))
+        self.assertIsNone(op.rodzaj_polecenia("Bash", {"command": None}))
+        self.assertIsNone(op.rodzaj_polecenia("Bash", "ssh x"))
+
+        rodzaje = {}
+        narzedzie = lambda polecenie: {"type": "tool_use", "name": "Bash", "input": {"command": polecenie}}  # noqa: E731
+        op.oznacz(rodzaje, "m1", narzedzie("gh run view 5"))
+        op.oznacz(rodzaje, "m1", narzedzie("ssh host uptime"))       # drugi rekord tego samego message.id
+        op.oznacz(rodzaje, "m2", narzedzie("gh run list"))
+        op.oznacz(rodzaje, "m3", narzedzie("ls"))
+        op.oznacz(rodzaje, None, narzedzie("ssh x"))
+        op.oznacz(rodzaje, "m4", {"type": "text", "text": "ssh"})
+        self.assertEqual(rodzaje, {"m1": {"ci", "deploy"}, "m2": {"ci"}})
+        self.assertEqual([op.rodzaj_wywolania(rodzaje.get(m)) for m in ("m1", "m2", "m3")], ["deploy", "ci", None])
+
+        definicje = [{"agent": "obserwator-ci", "zrodlo": "a", "plik": "x/obserwator-ci.md", "model": "haiku"},
+                     {"agent": "operator", "zrodlo": "b", "plik": "x/operator.md", "model": "sonnet"},
+                     {"agent": "deploy-reviewer", "zrodlo": "c", "plik": "x/deploy-reviewer.md"},
+                     {"agent": "implementer", "zrodlo": "a", "plik": "x/implementer.md", "model": "opus"},
+                     {"agent": "specialist", "zrodlo": "a", "plik": "x/specialist.md", "model": "opus"}]
+        self.assertEqual(op.agenci_ops(definicje), {"a": ["obserwator-ci · haiku"], "b": ["operator · sonnet"],
+                                                    "c": ["deploy-reviewer · inherit"]})
+
+    def test_zestawienie(self):
+        import operacje as op
+
+        class S:
+            def __init__(self, sid, projekt, wywolania):
+                self.sid, self.projekt, self.wywolania = sid, (projekt, None), wywolania
+
+        a = S("a", "web", {f"a{i}": {"podagent": False} for i in range(200)})
+        b = S("b", "web", {"b1": {"podagent": False}, "b2": {"podagent": True}})
+        c = S("c", "nieznany", {"c1": {"podagent": False}})
+        w = lambda s, koszt, ops=None, pod=False: {"sesja": s, "koszt": koszt, "ops": ops, "podagent": pod}  # noqa: E731
+        wywolania = [w(a, 6, "ci"), w(a, 2, "deploy"), w(a, 10), w(b, 2, "deploy", pod=True), w(b, 0),
+                     w(c, 5, "deploy")]
+        z = op.zestawienie(wywolania, [{"agent": "operator", "zrodlo": "web", "model": "sonnet"}], {"ops_prog_usd": 2})
+        web, bez = z["projekty"]
+        self.assertEqual((web["projekt"], web["koszt"], web["ci_glowna"], web["deploy_glowna"], web["deploy_pod"]),
+                         ("web", 20, 6, 2, 2))
+        self.assertEqual((web["ops_glowna_proc"], web["ops_proc"], web["sesje"]), (40.0, 50.0, 2))
+        self.assertEqual((web["zadania_mediana"], web["zadania_max"], web["sesje_ponad_prog"]), (100.5, 200, 1))
+        self.assertEqual(web["kandydat"], ["udzial", "nie_haiku"])
+        self.assertEqual(bez["kandydat"], [])                       # projekt bez repo nie jest kandydatem
+        m = z["metryki"]
+        self.assertEqual((m["ops_koszt_usd"], m["ops_glowna_koszt_usd"], m["ci_glowna_koszt_usd"]), (15, 13, 6))
+        self.assertEqual((m["ops_glowna_proc"], m["ops_podagenci_proc"]), (52.0, 13.3))
+        self.assertEqual(m["ops_glowna_wg_projektu"], "web:40;nieznany:100")
+        self.assertEqual((m["ops_kandydaci_audytu"], m["zadania_na_sesje_mediana"], m["sesje_ponad_150_zadan"]),
+                         (1, 1, 1))
+        z = op.zestawienie(wywolania, [{"agent": "operator", "zrodlo": "web", "model": "haiku"}],
+                           {"ops_prog_proc": 50})
+        self.assertEqual(z["projekty"][0]["kandydat"], [])
+        self.assertEqual(op.zestawienie([])["metryki"]["ops_glowna_proc"], None)
+
+    def test_sygnaly_i_csv(self):
+        cwd = str(self.repo)
+
+        def wyw(mid, polecenie=None, minuty=-5):
+            r = wywolanie(mid, dt.timedelta(minutes=minuty), wyj=100000, cwd=cwd)    # Opus 5.5: $2.00
+            if polecenie:
+                r["message"]["content"] = [{"type": "tool_use", "id": "t" + mid, "name": "Bash",
+                                            "input": {"command": polecenie}}]
+            return r
+
+        self.dopisz("f-repo", "sesja-repo.jsonl", [wyw("o1", "ssh cp-dev uptime"), wyw("o2", "gh run watch 9"),
+                                                   wyw("o3"), wyw("o4")])
+        pod = self.claude / "projects" / "f-repo" / "sesja-repo" / "subagents"
+        pod.mkdir(parents=True)
+        (pod / "agent-p1.meta.json").write_text(json.dumps({"agentType": "obserwator-ci"}), encoding="utf-8")
+        (pod / "agent-p1.jsonl").write_text("\n".join(json.dumps(r) for r in [
+            wyw("p1", "gh run view 9 --log-failed"), wyw("p2")]) + "\n", encoding="utf-8")
+        wyjscie, m = self.sygnaly()
+        self.assertEqual((m["ops_koszt_usd"], m["ops_glowna_koszt_usd"], m["ci_glowna_koszt_usd"]), (6.0, 4.0, 2.0))
+        self.assertEqual((m["ops_glowna_proc"], m["ops_podagenci_proc"]), (33.3, 33.3))
+        self.assertEqual((m["zadania_na_sesje_mediana"], m["sesje_ponad_150_zadan"]), (4, 0))
+        self.assertEqual((m["ops_glowna_wg_projektu"], m["ops_kandydaci_audytu"]), ("repo:33", 1))
+        tresc = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("## Kroki CI i deploy: sesja główna a podagenci", tresc)
+        self.assertIn("| repo | $12.00 | $2.00 / $2.00 | $2.00 / $0.00 | 33.3% | 1 | 4 | 0 | — | udział ops, "
+                      "brak agenta ops |", tresc)
+        self.assertIn("**Kandydaci do audytu agentów projektu (rola operatora):** repo.", tresc)
+        ops = json.loads((wyjscie / "operacje.json").read_text(encoding="utf-8"))
+        self.assertEqual(ops["projekty"][0]["kandydat"], ["udzial", "brak_agenta"])
+
+        agenci_repo = self.repo / ".claude" / "agents"
+        agenci_repo.mkdir(parents=True)
+        (agenci_repo / "operator.md").write_text("---\nname: operator\nmodel: haiku\n---\nops\n", encoding="utf-8")
+        wyjscie, m = self.sygnaly()
+        self.assertIn("| operator · haiku | udział ops |", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
+
+        import dopisz_metryki
+        naglowek = dopisz_metryki.kolumny_wzorcowe()
+        import operacje
+        self.assertTrue(set(operacje.zestawienie([])["metryki"]) <= set(naglowek))
+        self.uruchom("dopisz_metryki.py", "--retro", "R01", "--zobowiazania", "0", "--katalog", str(self.tmp / "ws"),
+                     "--metryki", str(wyjscie / "metryki.json"))
+        import csv
+        with (self.tmp / "ws" / "metryki.csv").open(encoding="utf-8", newline="") as f:
+            wiersz = list(csv.DictReader(f))[-1]
+        self.assertEqual((wiersz["ops_glowna_proc"], wiersz["zadania_na_sesje_mediana"]), ("33.3", "4"))
+        import efektywnosc
+        self.assertTrue({"ops_glowna_proc", "zadania_na_sesje_mediana"} <= set(efektywnosc.POROWNANIE))
+
+
 if __name__ == "__main__":
     unittest.main()

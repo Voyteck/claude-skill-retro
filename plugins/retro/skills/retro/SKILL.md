@@ -207,6 +207,21 @@ not compressed, changed after compression, another level, compressed. With `cave
 compressing the files that are not compressed, largest first (rules in `references/caveman.md`); report
 `pliki_kontekstu_tokeny` against the previous retros.
 
+**CI and deploy steps** („Kroki CI i deploy: sesja główna a podagenci”, since 0.8.0): the cost of API calls whose
+Bash/PowerShell commands watch CI (`gh run`, `gh workflow`, `gh pr checks`) or run deploy/ops (`ssh`, `docker`,
+`systemctl`, `deploy…` and similar), per project, split into main sessions and subagents, with the median calls per
+main session and the project's ops agents (classifier and limits: `references/sygnaly.md`, "CI and deploy steps").
+It checks the **session cost rule** (in the author's setup Z-012 „Koszt sesji”: CI and deploy only via a Haiku
+subagent with a fresh context, e.g. `obserwator-ci` / `operator`; a handoff to a new session after ~150 requests or
+on a change of task). When the user's rules files have such a rule, review it as a commitment: opportunities = ops
+calls and sessions over 150 calls, breaches = ops cost in main sessions and those long sessions. Report
+`ops_glowna_proc` and `zadania_na_sesje_mediana` against the previous retros. For each project the summary marks as
+an **audit candidate** (main-session ops share > ~10% of the project's cost, no ops agent in its `.claude/agents`, or
+none on Haiku) propose in step 3 "run the project-agents audit (operator role) in <project>", with the numbers from
+the table; several candidates make one change listing the projects, largest main-session ops cost first, so the
+limit of 5 changes holds. The audit itself runs in each project's own session, not in the retro. No rule of that kind and
+a main-session ops share above ~10% overall: propose the rule.
+
 The summary contains notes about the data (paragraphs starting **Note:** / **Uwaga:**); take them into account
 before quoting numbers:
 a window longer than transcript retention, a week with high cost and few merged PRs in tracked repos (work may have
