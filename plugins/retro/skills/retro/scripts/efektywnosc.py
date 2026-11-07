@@ -24,7 +24,7 @@ from teksty import t  # noqa: E402
 ROLE_DOMYSLNE = {
     "implementacja": ["programista", "implement", "developer", "coder", "engineer"],
     "przeglad": ["przeglad", "przegląd", "review", "tester", "qa", "audit"],
-    "ci": ["obserwator", r"\bci\b", "watch"],
+    "ci": ["obserwator", r"\bci\b", "watch", "operator"],
     "architekt": ["architekt", "architect"],
 }
 RODZINY = ("fable", "mythos", "opus", "sonnet", "haiku")

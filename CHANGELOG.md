@@ -1,5 +1,12 @@
 # Zmiany
 
+## 0.8.1 · 2026-11-07
+
+- **Rola `operator` w koszcie wg roli:** domyślny wzorzec roli `ci` w `role_agentow` łapie też `operator` (rola
+  operatora z project-agents 1.2.0: deploy, health check, logi serwerów na Haiku). Wcześniej jego wywołania trafiały
+  do „inne podagenty”, choć sygnał ops z 0.8.0 liczył je jako agenta ops. Etykieta roli: „CI i ops”. Własne
+  `role_agentow` w konfiguracji bez zmian.
+
 ## 0.8.0 · 2026-11-07
 
 Pomiar kroków CI i deployu w sesjach głównych wobec podagentów, per projekt (zasada Z-012 „Koszt sesji”). Analiza
