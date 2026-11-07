@@ -1,5 +1,23 @@
 # Zmiany
 
+## 0.8.0 · 2026-11-07
+
+Pomiar kroków CI i deployu w sesjach głównych wobec podagentów, per projekt (zasada Z-012 „Koszt sesji”). Analiza
+transkrypcji 2026-06..11: deploy 18,9% i CI 4,3% kosztu, głównie w długich sesjach głównych na Opusie.
+
+- **Nowy skrypt `operacje.py`:** każde polecenie `Bash`/`PowerShell` (sesja i podagenci) klasyfikowane jako CI
+  (`gh run|workflow|pr checks`) albo deploy/ops (`ssh`, `scp`, `docker`, `systemctl`, `deploy…` itd.); wywołanie API
+  (unikalny `message.id`) z takim poleceniem liczy się do kosztu ops w całości. Sekcja podsumowania „Kroki CI i deploy:
+  sesja główna a podagenci” z tabelą per projekt (koszt, CI / deploy w sesjach głównych i u podagentów, udział, mediana
+  wywołań na sesję główną, sesje ponad 150 wywołań, agenci ops projektu) i `operacje.json` obok `metryki.json`.
+- **Kandydaci do audytu agentów projektu** (skill project-agents, rola operatora): projekt z kosztem ops od
+  `ops_prog_usd` (domyślnie $1) i udziałem ops sesji głównych powyżej `ops_prog_proc` (domyślnie 10%), bez agenta ops
+  w `.claude/agents` albo bez agenta ops na Haiku. `SKILL.md`: retro sprawdza zasadę kosztu sesji jak zobowiązanie
+  i proponuje jedną zmianę „audyt project-agents” z listą projektów.
+- **Nowe kolumny `metryki.csv`:** `ops_koszt_usd`, `ops_glowna_koszt_usd`, `ops_glowna_proc`, `ci_glowna_koszt_usd`,
+  `ops_podagenci_proc`, `ops_glowna_wg_projektu`, `ops_kandydaci_audytu`, `zadania_na_sesje_mediana`,
+  `sesje_ponad_150_zadan`; `ops_glowna_proc` i `zadania_na_sesje_mediana` w porównaniu z poprzednimi retro.
+
 ## 0.7.2 · 2026-11-06
 
 Cztery poprawki sygnałów z retro R07 (#13–#16).

@@ -22,6 +22,11 @@ Od 0.7.0 retro **kończy się tabelą wyników w czacie**: koszt i tokeny, koszt
 podział na model autora, rozmiar PR i poziom rozumowania, wobec 2–3 poprzednich retro, z oznaczeniem prób poniżej 5 PR.
 Podsumowanie ostrzega, gdy koszt tygodnia jest wysoki, a w śledzonych repo jest mało PR (praca mogła się przenieść).
 
+Od 0.8.0 retro **mierzy kroki CI i deployu per projekt**: koszt wywołań, które pilnują CI (`gh run`, `gh pr checks`)
+albo uruchamiają polecenia ops (`ssh`, `docker`, `systemctl`…) w sesjach głównych wobec podagentów, medianę wywołań
+na sesję główną oraz projekty bez agenta ops (Haiku `operator` / `obserwator-ci`) jako kandydatów do audytu
+project-agents.
+
 Od 0.7.2 retro **mierzy styl korespondencji wprost** (mediana znaków tekstu do użytkownika i promptów agentów), osobno
 liczy wybudzenia odpowiedzią na `AskUserQuestion`, model autora PR bierze z opcjonalnej stopki `Agent: <nazwa>`, a repo
 niewidoczne dla tokena `gh` oznacza etykietą (opcjonalny token per repo z `git credential fill`).

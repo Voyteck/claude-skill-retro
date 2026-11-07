@@ -31,6 +31,7 @@ import tokeny  # noqa: E402
 import efektywnosc  # noqa: E402
 import agenci  # noqa: E402
 import caveman  # noqa: E402
+import operacje  # noqa: E402
 import zdarzenia_agentow  # noqa: E402
 from teksty import t  # noqa: E402
 from tokeny import (PROG_DUZEGO_KONTEKSTU, PROG_WYBUDZENIA_H, PROG_WYBUDZENIA_TOKENY,  # noqa: E402,F401
@@ -319,6 +320,7 @@ class Sesja:
         self.start = None          # najwcześniejszy rekord pliku, także sprzed okna
         self.czasy = []            # czasy rekordów w oknie (sesja i podagenci): aktywność przy commitach
         self.wywolania = {}        # message.id -> wywołanie API (sesja i podagenci, także spoza okna)
+        self.ops = {}              # message.id -> {„ci”, „deploy”} z poleceń Bash/PowerShell (od 0.8.0)
         self.wejscia = []          # (czas, przyczyna) wejść sesji głównej, także spoza okna: przyczyny wybudzeń
         self.znaki_odpowiedzi = []  # znaki tekstu sesji do właściciela, po jednej pozycji na jego wiadomość (od 0.7.2)
         self.znaki_promptow = []   # długość `prompt` wywołań Agent/Task sesji głównej w oknie (od 0.7.2)
@@ -386,6 +388,7 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                 for x in tresc:
                     if x.get("type") == "tool_use":
                         narzedzia[x.get("id")] = (x.get("name"), x.get("input") or {})
+                        operacje.oznacz(s.ops, wiad.get("id"), x)
             czas = czas_lokalny(d.get("timestamp", ""))
             if czas is not None:
                 s.start = min(s.start, czas) if s.start else czas
@@ -536,6 +539,8 @@ def czytaj_sesje(plik: pathlib.Path, od: dt.datetime, do: dt.datetime) -> Sesja:
                         if wynik:
                             wynik[1]["agent"] = typ_ag      # rola agenta w koszcie (efektywnosc.py)
                             dodaj_wywolanie(s.wywolania, wynik)
+                        for x in (d.get("message") or {}).get("content") or []:
+                            operacje.oznacz(s.ops, d["message"].get("id"), x)
                     if not (czas and od <= czas < do):
                         continue
                     if d.get("type") == "user" and "denied by the Claude Code auto mode classifier" in linia:
@@ -617,7 +622,7 @@ def metryki_tokenow(sesje: list, od, do, cennik: dict) -> dict:
                 kopie += 1
                 continue
             widziane.add(mid)
-            w = dict(w, sesja=s)
+            w = dict(w, sesja=s, ops=operacje.rodzaj_wywolania(s.ops.get(mid)))
             w["koszt"] = koszt_wywolania(w, cennik)
             if w["koszt"] is None:
                 nieznane[w["model"]] += od <= w["czas"] < do
@@ -1299,6 +1304,8 @@ def main(argv=None):
     ef = efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh, sesje, od, do, od_data, do_data,
                             projekty, srodowiska)
     narzedzia = wyniki_narzedzi(sesje)
+    ops = operacje.zestawienie(tok["wywolania_okna"], ef["definicje"], konf)
+    (wyjscie / "operacje.json").write_text(json.dumps(ops, ensure_ascii=False, indent=2), encoding="utf-8")
     kontekst = caveman.opisz(caveman.pliki_kontekstu(regul, repozytoria, foldery, katalog, konf), katalog, konf)
     (wyjscie / caveman.PLIK_LISTY).write_text(json.dumps(kontekst, ensure_ascii=False, indent=2), encoding="utf-8")
     (wyjscie / "agenci.json").write_text(json.dumps(
@@ -1364,6 +1371,8 @@ def main(argv=None):
         # od 0.6.0: agenci między retro i pliki kontekstu (caveman); koszt na 10% planu dopisany niżej
         **agenci.metryki_okna(ef["definicje"], ef["zmiany"], ef["starty"], ef["polaczone"], od, do),
         **caveman.metryki(kontekst, konf),
+        # od 0.8.0: kroki CI i deploy w sesjach głównych a u podagentów, długość sesji (zasada Z-012)
+        **ops["metryki"],
     }
     if a.plan_uzyty:
         skala = 10 / a.plan_uzyty
@@ -1401,6 +1410,7 @@ def main(argv=None):
                  f"{c['blokady_klasyfikatora'] + c['blokady_u_podagentow']} | {c['bledy_narzedzi']} | {c['kompakty']} | {c['podagenci']} | ${koszt:.2f} |")
     l += ["", t("pods_pory"), ""] + [f"- {k[2]}: {v}" for k, v in sorted(pory.items())]
     l += raport_tokenow(tok, sesje)
+    l += operacje.raport(ops)
     l += ["", t("chmura_tytul"), ""]
     if chmura:
         l += [t("chmura_opis", koszt=chmura["okno"], n=len(chmura["sesje"]), nowe=chmura["nowe"],
