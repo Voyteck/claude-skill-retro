@@ -270,7 +270,7 @@ TEKSTY = {
     "rola_sesja": {"pl": "sesja główna", "en": "main session"},
     "rola_implementacja": {"pl": "implementacja", "en": "implementation"},
     "rola_przeglad": {"pl": "przegląd", "en": "review"},
-    "rola_ci": {"pl": "CI", "en": "CI"},
+    "rola_ci": {"pl": "CI i ops", "en": "CI and ops"},
     "rola_architekt": {"pl": "architekt", "en": "architect"},
     "rola_inne": {"pl": "inne podagenty", "en": "other subagents"},
     "ef_bez_stopki": {"pl": "bez stopki", "en": "no trailer"},

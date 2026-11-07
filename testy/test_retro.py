@@ -870,10 +870,12 @@ class Test030(Srodowisko):
         wz = ef.wzorce_rol({})
         role = {a: ef.rola(True, a, wz) for a in ("programista", "programista-prosty", "przeglad-mechaniczny",
                                                     "architekt-przeglad", "obserwator-ci", "architekt", "Explore",
-                                                    "code-reviewer", "general-purpose")}
+                                                    "code-reviewer", "general-purpose", "operator",
+                                                    "operator-wdrozen", "ci-watcher")}
         self.assertEqual(role, {"programista": "implementacja", "programista-prosty": "implementacja",
                                 "przeglad-mechaniczny": "przeglad", "architekt-przeglad": "przeglad",
                                 "obserwator-ci": "ci", "architekt": "architekt", "Explore": "inne",
+                                "operator": "ci", "operator-wdrozen": "ci", "ci-watcher": "ci",
                                 "code-reviewer": "przeglad", "general-purpose": "inne"})
         self.assertEqual(ef.rola(False, "programista", wz), "sesja")
         wlasne = ef.wzorce_rol({"role_agentow": {"implementacja": ["^builder"], "przeglad": ["checker"]}})
