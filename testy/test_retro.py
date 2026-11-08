@@ -2229,5 +2229,82 @@ class Test080Operacje(Srodowisko):
         self.assertTrue({"ops_glowna_proc", "zadania_na_sesje_mediana"} <= set(efektywnosc.POROWNANIE))
 
 
+class Test090Podagenci(unittest.TestCase):
+    """podagenci.py: starty na scalony PR, podział kosztu, odmowy strażnika worktree na sztucznych transkrypcjach."""
+
+    @staticmethod
+    def zapis(plik, rekordy):
+        plik.parent.mkdir(parents=True, exist_ok=True)
+        plik.write_text("\n".join(json.dumps(r) for r in rekordy) + "\n", encoding="utf-8")
+
+    @staticmethod
+    def asystent(mid, czas, narzedzie=None, zapis=0, odczyt=0):
+        tresc = [{"type": "tool_use", "id": "t" + mid, "name": "Bash", "input": {"command": narzedzie}}] if narzedzie else []
+        return {"type": "assistant", "timestamp": czas, "message": {
+            "id": mid, "model": "claude-opus-5-5", "content": tresc,
+            "usage": {"input_tokens": 10, "output_tokens": 100, "cache_creation_input_tokens": zapis,
+                      "cache_read_input_tokens": odczyt}}}
+
+    def test_miara(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            projekty = pathlib.Path(tmp) / "projects"
+            pod = projekty / "p" / "sesja1" / "subagents"
+            heredoc = "cat > /tmp/x <<'EOF'\nx\nEOF"
+            odmowa = {"type": "user", "timestamp": "2026-11-07T10:01:00Z", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "tm2", "is_error": True,
+                 "content": "Command is too complex: files are isolated in the worktree"}]}}
+            self.zapis(pod / "agent-a1.jsonl", [
+                {"type": "user", "timestamp": "2026-11-07T10:00:00Z",
+                 "message": {"role": "user", "content": "Implement wergiliusz-hq/mitm#5"}},
+                self.asystent("m1", "2026-11-07T10:00:30Z", zapis=1_000_000),
+                self.asystent("m2", "2026-11-07T10:00:50Z", narzedzie=heredoc, zapis=1_000_000, odczyt=2_000_000),
+                odmowa])
+            (pod / "agent-a1.meta.json").write_text('{"agentType": "programista"}', encoding="utf-8")
+            self.zapis(pod / "agent-a2.jsonl", [
+                {"type": "user", "timestamp": "2026-11-07T11:00:00Z",
+                 "message": {"role": "user", "content": "Review https://github.com/wergiliusz-hq/mitm/pull/5"}},
+                self.asystent("m3", "2026-11-07T11:00:30Z", zapis=100_000)])
+            (pod / "agent-a2.meta.json").write_text('{"agentType": "przeglad-bezpieczenstwa"}', encoding="utf-8")
+            self.zapis(pod / "agent-a3.jsonl", [      # poza oknem
+                {"type": "user", "timestamp": "2026-10-01T11:00:00Z", "message": {"role": "user", "content": "x"}},
+                self.asystent("m4", "2026-10-01T11:00:30Z", zapis=1)])
+            pr_plik = pathlib.Path(tmp) / "pr.json"
+            pr_plik.write_text(json.dumps({"wergiliusz-hq/mitm": [
+                {"number": 5, "title": "t", "headRefName": "b", "mergedAt": "2026-11-07T12:00:00Z"}]}), encoding="utf-8")
+            wyjscie = pathlib.Path(tmp) / "wynik.json"
+            r = subprocess.run([sys.executable, str(SKRYPTY / "podagenci.py"), "--od", "2026-11-07", "--do", "2026-11-08",
+                                "--pr-plik", str(pr_plik), "--katalog", str(projekty), "--json", str(wyjscie)],
+                               capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            w = json.loads(wyjscie.read_text(encoding="utf-8"))
+        self.assertEqual(w["starty"], 2)
+        self.assertEqual(w["typy"]["programista"]["wywolania_na_start"], 2)
+        self.assertEqual(w["typy"]["programista"]["odmowy"], 1)
+        self.assertEqual(w["pr"]["programista_na_pr"]["srednia"], 1)
+        self.assertEqual(w["pr"]["przeglad_na_pr"]["srednia"], 1)
+        self.assertEqual(w["nieprzypisane"]["starty"], 0)
+        self.assertEqual(w["odmowy"]["ksztalty_glowne"]["heredoc"]["n"], 1)
+        proc = w["podzial_kosztu"]["proc"]
+        self.assertGreater(proc["zapis_pierwszego"], 0)
+        self.assertGreater(proc["zapisy_pozniejsze"], 0)
+        self.assertAlmostEqual(sum(proc.values()), 1.0, places=6)
+
+    def test_ksztalty(self):
+        import podagenci
+        self.assertEqual(podagenci.ksztalt_glowny("cat > a <<'EOF'\nx\nEOF"), "heredoc")
+        self.assertEqual(podagenci.ksztalt_glowny("cd /x && ls"), "cd X && ...")
+        self.assertEqual(podagenci.ksztalt_glowny("git -C /r status"), "git -C")
+        self.assertEqual(podagenci.ksztalt_glowny("for r in a b; do echo $r; done"), "loop")
+        self.assertEqual(podagenci.ksztalt_glowny("echo $(date)"), "cmd-subst")
+        self.assertEqual(podagenci.ksztalt_glowny("ls /tmp"), "plain/other")
+
+    def test_kandydaci(self):
+        import podagenci
+        k = podagenci.kandydaci("see mitm#3, wergiliusz-hq/ops/pull/7, PR #9", ["wergiliusz-hq/mitm", "wergiliusz-hq/ops"])
+        self.assertIn(("wergiliusz-hq/mitm", 3), k)
+        self.assertIn(("wergiliusz-hq/ops", 7), k)
+        self.assertIn(("wergiliusz-hq/mitm", 9), k)
+
+
 if __name__ == "__main__":
     unittest.main()

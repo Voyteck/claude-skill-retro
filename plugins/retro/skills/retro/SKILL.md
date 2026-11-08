@@ -27,7 +27,11 @@ starts by reviewing what was agreed before.
   another machine's transcripts for the trend), `dopisz_metryki.py` (a `metryki.csv` row),
   `przypomnienie.py` (reminder hook), `teksty.py` (script messages per language and language-independent
   recognition), `agenci.py` (agent definitions, snapshot `agenci.csv`, changes and their effect, task routing),
-  `caveman.py` (context files: list, backup, check, rollback). Configuration fields: `references/konfiguracja.md`.
+  `caveman.py` (context files: list, backup, check, rollback), `podagenci.py` (subagent measure; from R08 run it
+  over the retro window: `python3 "${CLAUDE_SKILL_DIR}/scripts/podagenci.py" --od <ISO> --repo <org/repo> [--json FILE]`;
+  baseline 2026-11-07..08: 154 starts, programista 47 starts at 73 calls/start and 109k context, first-call write 3%
+  of subagent cost, 452 worktree-guard refusals, 64% heredoc; aim: refusals per start down after the shell-shape rule
+  in the agent files). Configuration fields: `references/konfiguracja.md`.
   Meaning and limits of the metrics: `references/sygnaly.md`; prices for cost metrics: `references/cennik.json`;
   compressing context files: `references/caveman.md`.
 - Templates: `assets/<jezyk>/` (`pl`, `en`). For a language without its own templates use `assets/en/` and
