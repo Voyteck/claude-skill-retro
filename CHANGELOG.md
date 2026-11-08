@@ -1,5 +1,12 @@
 # Zmiany
 
+## 0.8.2 · 2026-11-08
+
+- **Nowy skrypt `podagenci.py`** (PR #20): starty podagentów na scalony PR, podział kosztu (pierwszy zapis cache /
+  późniejsze zapisy / odczyty / wyjście), odrzucenia strażnika worktree wg typu agenta i kształtu polecenia. Punkt
+  odniesienia na R08: okno 2026-11-07..08, 154 starty, 452 odrzucenia (64% heredoc). Podbicie wersji, żeby
+  `claude plugin update` odświeżył zainstalowaną kopię.
+
 ## 0.8.1 · 2026-11-07
 
 - **Rola `operator` w koszcie wg roli:** domyślny wzorzec roli `ci` w `role_agentow` łapie też `operator` (rola
