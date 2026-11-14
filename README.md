@@ -22,6 +22,12 @@ Since 0.7.0 the retro **closes with a results table in the chat**: cost and toke
 rounds per PR, split by author model, PR size and reasoning effort, against the previous 2–3 retros, with samples under
 5 PRs marked. The summary warns when a week's cost is high but tracked repos show few PRs (work may have moved).
 
+Since 0.9.0 the retro **measures outcomes, not only the process**: for PRs merged 30–60 days before the window end,
+acceptance (no fix round and no rework by a later PR within 30 days, found by references and `git blame`), cost per
+accepted change (all cost of that period, plus owner messages and attention time) and verification tightness (bugs
+caught by agent review against those caught after the review approved or in production), by implementer and reviewer
+configuration, with three rows in the closing results table.
+
 Since 0.8.0 the retro **measures CI and deploy steps per project**: the cost of calls that watch CI (`gh run`,
 `gh pr checks`) or run ops commands (`ssh`, `docker`, `systemctl`…) in main sessions against subagents, the median
 calls per main session, and the projects without an ops agent (Haiku `operator` / `obserwator-ci`) as candidates for

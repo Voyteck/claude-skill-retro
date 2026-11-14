@@ -164,7 +164,10 @@ model and reasoning effort week by week (from the trend archives, so also for re
 merged on GitHub by author model (from `Co-Authored-By: Claude <Model>` trailers), returns from review and CI in
 transcripts by implementer and model, **cost and quality per PR by implementer configuration** (model · effort ·
 PR size), the same table for the retro window alone, and the current agent definitions (`.claude/agents`: model, effort,
-role). It opens with "Results against previous retros" („Wyniki wobec poprzednich retro”), the table for the closing
+role). Since 0.9.0 it also has **outcome measures** for the cohort of PRs merged 30–60 days before the window end:
+acceptance (no fix round and no rework by a later PR within 30 days), cost per accepted change (with owner messages
+and attention time), and verification tightness (bugs caught by agent review against those caught after the review
+approved, or in production), by implementer and by reviewer configuration. It opens with "Results against previous retros" („Wyniki wobec poprzednich retro”), the table for the closing
 message (step 6), every window computed by today's definition. In section 2a write: what got
 better and what got worse, with numbers against the previous 2–3 retros; efficiency by implementer configuration;
 and the **agent selection rules** table.
@@ -365,10 +368,13 @@ table with a sentence, and do not point to section 2a instead of it.
 1. **Results table against the previous 2–3 retros.** Copy "Results against previous retros" („Wyniki wobec poprzednich
    retro”) from the summary as a table: cost and tokens, cost per merged PR, % of PRs with a fix, rounds per PR, the
    split by author model, PR size and implementer effort (when known), the normalised rows (per working day, at a fixed
-   size mix) and the direction column. Rules:
+   size mix), the outcome rows (acceptance, cost per accepted change, verification tightness of the 30–60 day cohort,
+   since 0.9.0) and the direction column. Rules:
    - judge the direction by the normalised rows; the window totals (cost, tokens, merged PRs) do not compare between
      windows of different length or intensity. When the raw and the fixed-mix % with a fix point different ways, say
      that the change comes from the size mix;
+   - the outcome rows describe work merged 30–60 days ago: say so, and judge a rule change there a month after it,
+     not in the window that made it. Tightness is a heuristic on free text (a hint, not evidence);
    - keep every `*`: a number from fewer than 5 PRs is marked, and in the sentences below it is called a hint, not a
      result. A cell or row with no data stays "—": say what is missing, do not fill it by hand or drop the row;
    - directly under the table repeat every **Note:** / **Uwaga:** of the section that changes how it reads, above all

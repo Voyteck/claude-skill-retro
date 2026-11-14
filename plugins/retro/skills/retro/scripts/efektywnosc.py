@@ -30,13 +30,13 @@ ROLE_DOMYSLNE = {
 RODZINY = ("fable", "mythos", "opus", "sonnet", "haiku")
 # Rundy poprawek: przerwa między paczkami commitów, pomijane gałęzie (partie integracyjne), za duże PR.
 PRZERWA_RUNDY_MIN, MAX_COMMITOW, POMIN_GALEZIE, TYGODNIE = 20, 40, ["integration/", "batch/"], 6
-MAX_STRON_GH = 10
+MAX_STRON_GH = 25                  # 25 × 40 = 1000: limit wyników wyszukiwania GitHuba (od 0.9.0 dłuższy zakres: kohorty)
 # Porównanie z poprzednimi retro (kolumny `metryki.csv`); dla każdego wskaźnika więcej = gorzej.
 POROWNANIE = ["koszt_na_wiadomosc_usd", "tokeny_wyjscia_na_wiadomosc", "znaki_do_wlasciciela_na_wiadomosc",
               "znaki_promptu_agenta", "kontekst_mediana", "kontekst_ponad_200k_proc", "kontekst_startowy_mediana",
               "podagenci_opus_koszt_proc", "wybudzenia_koszt_usd", "pr_z_poprawka_proc", "rundy_na_pr",
               "powroty_przeglad", "powroty_ci", "koszt_na_pr_usd", "pliki_kontekstu_tokeny",
-              "ops_glowna_proc", "zadania_na_sesje_mediana"]
+              "ops_glowna_proc", "zadania_na_sesje_mediana", "koszt_na_zaakceptowany_usd", "wiad_na_zaakceptowany"]
 POPRZEDNIE_RETRO = 3
 # Rozmiar PR (dodane + usunięte linie): S do pierwszego progu, M do drugiego, L powyżej.
 PROGI_ROZMIARU = [50, 300]
@@ -50,7 +50,9 @@ query($q: String!, $po: String) {
   search(query: $q, type: ISSUE, first: 40, after: $po) {
     pageInfo { hasNextPage endCursor }
     nodes { ... on PullRequest {
-      number createdAt mergedAt headRefName additions deletions changedFiles
+      number createdAt mergedAt headRefName additions deletions changedFiles title body
+      mergeCommit { oid }
+      files(first: 100) { nodes { path } }
       commits(first: 100) { totalCount nodes { commit { oid authoredDate messageHeadline messageBody
         parents { totalCount } } } }
     } }
@@ -305,18 +307,29 @@ def pr_commity(sciezka: str, od_data: dt.date, do_data: dt.date, gh: str, env: d
         for n in s["nodes"]:
             if not n:
                 continue
-            commity = [{"ts": c["commit"]["authoredDate"], "naglowek": c["commit"]["messageHeadline"][:90],
+            commity = [{"ts": c["commit"]["authoredDate"], "oid": c["commit"].get("oid"), "naglowek": c["commit"]["messageHeadline"][:90],
                         "scalenie": c["commit"]["parents"]["totalCount"] > 1,
                         "modele": sorted({rodzina(m) for m in WZOR_MODELU.findall(c["commit"].get("messageBody") or "")}),
                         "agent": (WZOR_AGENTA.findall(c["commit"].get("messageBody") or "") or [None])[-1]}
                        for c in n["commits"]["nodes"]]
             wynik.append({"repo": repo, "pr": n["number"], "utworzony": n["createdAt"], "scalony": n["mergedAt"],
                           "galaz": n["headRefName"], "commitow": n["commits"]["totalCount"], "commity": commity,
-                          "linie": (n.get("additions") or 0) + (n.get("deletions") or 0), "pliki": n.get("changedFiles")})
+                          "linie": (n.get("additions") or 0) + (n.get("deletions") or 0), "pliki": n.get("changedFiles"),
+                          # od 0.9.0 (wynik.py): odwołania z tytułu i opisu (sam opis nie zostaje), pliki, commit scalenia
+                          "tytul": (n.get("title") or "")[:200],
+                          **dict(zip(("odwolania", "odwolania_poprawki"),
+                                     wynik_odwolania(n.get("title") or "", n.get("body") or ""))),
+                          "oid": (n.get("mergeCommit") or {}).get("oid"),
+                          "sciezki": [f["path"] for f in ((n.get("files") or {}).get("nodes") or []) if f]})
         if not s["pageInfo"]["hasNextPage"]:
             break
         po = s["pageInfo"]["endCursor"]
     return wynik, None
+
+
+def wynik_odwolania(tytul: str, opis: str) -> tuple:
+    import wynik  # noqa: E402  (leniwie: wynik importuje ten moduł)
+    return wynik.odwolania(tytul, opis)
 
 
 def modele_commita(c: dict, model_agenta=None) -> tuple:
@@ -361,7 +374,10 @@ def rundy_pr(lista: list, konf: dict, model_agenta=None) -> list:
                       "autor": autor, "rundy": len(rundy) - 1, "commity": len(wlasne),
                       "poprawki": collections.Counter((autor, m) for r in rundy[1:] for c in r for m in c["modele"] or [None]),
                       "h": (scalony - utworzony).total_seconds() / 3600 if utworzony else None,
-                      "linie": p.get("linie"), "pliki": p.get("pliki"), "rozbieznosc_modelu": rozbieznosc})
+                      "linie": p.get("linie"), "pliki": p.get("pliki"), "rozbieznosc_modelu": rozbieznosc,
+                      "tytul": p.get("tytul"), "odwolania": p.get("odwolania") or set(),
+                      "odwolania_poprawki": p.get("odwolania_poprawki") or set(), "oid": p.get("oid"),
+                      "oidy": [c.get("oid") for c in p["commity"] if c.get("oid")], "sciezki": p.get("sciezki") or []})
     return wynik
 
 
@@ -621,11 +637,12 @@ def wskaznik_std(lista: list, mieszanka: dict, progi=None):
 
 
 def raport_wynikow(okna: list, rekordy: list, rundy, polaczone, od_tygodnia: dt.date, progi=None,
-                   konf: dict = None) -> list:
+                   konf: dict = None, wiersze_wyniku: list = ()) -> list:
     """Tabela wyników do zamknięcia retro (krok 6): każde okno z `okna_retro` policzone dziś tą samą definicją, z
     archiwów kosztu (`rekordy`: [(źródło, `rekordy_kosztu`)]) i scalonych PR. Okno starsze niż początek tabel
     (`od_tygodnia`) nie ma danych PR („—”). Wartość z mniej niż MIN_PR PR ma gwiazdkę. Od 0.8.3 także wiersze
-    znormalizowane: na dzień roboczy (`konf`: kalendarz) i przy stałej mieszance rozmiarów PR."""
+    znormalizowane: na dzień roboczy (`konf`: kalendarz) i przy stałej mieszance rozmiarów PR. Od 0.9.0 wiersze miar
+    wyniku (`wiersze_wyniku`: [(etykieta, komórki, kierunek)] z `wynik.wiersze_wynikow`)."""
     progi = progi or PROGI_ROZMIARU
     dane = []
     for _, od, do, _ in okna:
@@ -693,6 +710,8 @@ def raport_wynikow(okna: list, rekordy: list, rundy, polaczone, od_tygodnia: dt.
     wiersz(t("ef_wyn_dni"), [str(d["dni"]) for d in dane])
     wiersz(t("ef_wyn_koszt_dzien"), [f"${d['koszt'] / d['dni']:.0f}" if rekordy else "—" for d in dane])
     wiersz(t("ef_wyn_pr_dzien"), ["—" if d["pr"] is None else f"{len(d['pr']) / d['dni']:.1f}{gw(d)}" for d in dane])
+    for etykieta, komorki, kier in wiersze_wyniku:
+        wiersz(etykieta, komorki, kier)
 
     def grupy(klucz, zrodlo, etykieta, kolejnosc=None, z_kosztem=False):
         """Wiersze podziału: PR okien pogrupowane wg `klucz`, od największej grupy w całej tabeli."""
@@ -719,6 +738,8 @@ def raport_wynikow(okna: list, rekordy: list, rundy, polaczone, od_tygodnia: dt.
                 else "—" for d, r in zip(dane, razem)])
     if mieszanka:
         l += ["", t("ef_wyn_mieszanka", mieszanka=", ".join(f"{k} {100 * w:.0f}%" for k, w in mieszanka.items()))]
+    if wiersze_wyniku:
+        l += ["", t("wy_kohorty")]
     return l
 
 

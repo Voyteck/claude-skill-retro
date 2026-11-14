@@ -32,6 +32,7 @@ import efektywnosc  # noqa: E402
 import agenci  # noqa: E402
 import caveman  # noqa: E402
 import operacje  # noqa: E402
+import wynik  # noqa: E402
 import zdarzenia_agentow  # noqa: E402
 from teksty import t  # noqa: E402
 from tokeny import (PROG_DUZEGO_KONTEKSTU, PROG_WYBUDZENIA_H, PROG_WYBUDZENIA_TOKENY,  # noqa: E402,F401
@@ -1082,6 +1083,11 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
     wzorce, uwagi = efektywnosc.wzorce_rol(konf), []
     tygodnie = int(konf.get("efektywnosc_tygodnie") or efektywnosc.TYGODNIE)
     od_tygodnia = min(tokeny.poniedzialek(do_data) - dt.timedelta(weeks=tygodnie - 1), tokeny.poniedzialek(od_data))
+    # od 0.9.0: PR pobierane także dla kohort miar wyniku (30–60 dni przed końcem każdego okna tabeli wyników)
+    okna = efektywnosc.okna_retro(katalog / "metryki.csv" if katalog is not None else None,
+                                  {"okno_od": od_data.isoformat(), "okno_od_godzina": f"{od:%H:%M}"}, od, do)
+    dni_wyniku = int(konf.get("wynik_dni") or wynik.DNI)
+    od_pobrania = min([od_tygodnia] + [wynik.okno_kohorty(o[2], dni_wyniku)[0].date() for o in okna])
     koszty = [(nazwa, *efektywnosc.koszt_wg_roli(ar.get("calls") or {}, cennik, wzorce, od_tygodnia))
               for nazwa, ar in archiwa]
     rekordy = [(nazwa, efektywnosc.rekordy_kosztu(ar.get("calls") or {}, cennik, wzorce)) for nazwa, ar in archiwa]
@@ -1092,19 +1098,20 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
     definicje = agenci.wczytaj_definicje(katalogi_agentow)
     migawki = agenci.wczytaj_migawki(katalog / agenci.PLIK_MIGAWKI) if katalog is not None else []
     model_agenta = agenci.model_w_dniu(migawki, definicje)
-    rundy, repo_gh = None, {}
+    rundy, rundy_wszystkie, repo_gh = None, None, {}
     if gh:
         rundy = []
         for nazwa, r in repo.items():
             if r["gh"] in (t("gh_brak_zdalnego"), t("gh_pominiete_konf"), t("gh_brak_dostepu")):
                 continue
-            lista, blad = efektywnosc.pr_commity(repozytoria[nazwa], od_tygodnia, do_data, gh,
+            lista, blad = efektywnosc.pr_commity(repozytoria[nazwa], od_pobrania, do_data, gh,
                                                  (srodowiska or {}).get(nazwa))
             if lista is None:
                 uwagi.append(t("ef_gh_blad", repo=nazwa, blad=zamaz(blad)[0]))
                 continue
             repo_gh[nazwa] = lista[0]["repo"] if lista else None
             rundy += efektywnosc.rundy_pr(lista, konf, model_agenta)
+        rundy_wszystkie, rundy = rundy, [r for r in rundy if r["tydzien"] >= od_tygodnia]
         rozbiezne = [f"{r['repo']}#{r['pr']}" for r in rundy if r.get("rozbieznosc_modelu")]
         if rozbiezne:
             uwagi.append(t("ef_rozbieznosc_modelu", n=len(rozbiezne), lista=", ".join(rozbiezne[:5])
@@ -1114,7 +1121,7 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
     # zdarzenia agentów: lokalne transkrypcje (od początku tygodni tabel) i źródła zdalne z `zdarzenia_*`;
     # powroty liczone dla sesji okna, koszt na PR dla sesji repo z zakresu retro
     w_zakresie = {s.sid[:8] for s in sesje}
-    lokalne = zdarzenia_agentow.zbierz(katalogi_transkrypcji(konf), (od_tygodnia - dt.timedelta(days=7)).isoformat())
+    lokalne = zdarzenia_agentow.zbierz(katalogi_transkrypcji(konf), (od_pobrania - dt.timedelta(days=7)).isoformat())
     repo_sesji = {}
     for sid, cwd in (lokalne.get("sesje") or {}).items():
         nazwa = projekty(cwd)[0]
@@ -1139,9 +1146,10 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
         odczyty.append((nazwa, dane))
         powroty.append((nazwa, *efektywnosc.powroty(dane, wzorce, od, do)))
         zdarzenia_zrodel.append((dane, {}))                 # repo nieznane: PR dopasowane po numerze
-    polaczone = None
+    polaczone, polaczone_wszystkie = None, None
     if rundy is not None:
-        polaczone = efektywnosc.polacz_pr(rundy, efektywnosc.koszty_pr(zdarzenia_zrodel, wzorce, cennik))
+        polaczone_wszystkie = efektywnosc.polacz_pr(rundy_wszystkie, efektywnosc.koszty_pr(zdarzenia_zrodel, wzorce, cennik))
+        polaczone = [r for r in polaczone_wszystkie if r["tydzien"] >= od_tygodnia]
         uwagi += [efektywnosc.notka_zdarzen(nazwa, dane, polaczone, od, do) for nazwa, dane in odczyty]
     uwagi = efektywnosc.ostrzezenia_repo(
         koszty, rundy, sorted({wlasciciel or nazwa for nazwa, wlasciciel in repo_gh.items()}),
@@ -1149,12 +1157,39 @@ def efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh,
     zmiany = agenci.zmiany(migawki, definicje)
     starty = agenci.starty([d for d, _ in zdarzenia_zrodel], od, do)
     return {"wzorce": wzorce, "koszty": koszty, "rundy": rundy, "powroty": powroty, "uwagi": uwagi,
+            "okna": okna, "od_pobrania": od_pobrania, "wszystkie_pr": polaczone_wszystkie,
+            "weryf": wynik.weryfikacja_pr(zdarzenia_zrodel, wzorce),
+            "repo_sciezki": {gh_nazwa: repozytoria[nazwa] for nazwa, gh_nazwa in repo_gh.items() if gh_nazwa},
             "rekordy": rekordy, "od_tygodnia": od_tygodnia,
             "okna_kosztu": {nazwa: efektywnosc.koszt_okna(lista, od, do) for nazwa, lista in rekordy},
             "polaczone": polaczone, "katalogi_agentow": katalogi_agentow, "definicje": definicje,
             "migawki": bool(migawki), "zmiany": zmiany, "starty": starty,
             "efekty": agenci.efekt_zmian(zmiany, polaczone, od_tygodnia, konf.get("pr_progi_rozmiaru")),
             "przydzial": agenci.przydzial_pr(polaczone, konf.get("pr_progi_rozmiaru"))}
+
+
+def czasy_wiadomosci(sesje: list) -> list:
+    return [czas for s in sesje for czas, rodzaj, _ in s.zdarzenia if rodzaj == "wlasciciel"]
+
+
+def miary_wyniku(ef: dict, konf: dict, czasy_wlasciciela, projekty, w_zakresie, do) -> dict:
+    """Miary wyniku (od 0.9.0, `wynik.py`): ocena kohorty bieżącego okna i wiersze tabeli wyników dla każdego okna.
+    Bez danych z GitHuba: ocena None. Czasy wiadomości właściciela z historii trendu, a bez niej z osobnego odczytu."""
+    if ef["wszystkie_pr"] is None:
+        return {"ocena": None, "podsumowanie": None, "wiersze": []}
+    dni = int(konf.get("wynik_dni") or wynik.DNI)
+    if czasy_wlasciciela is None:
+        od_k = wynik.okno_kohorty(min(o[2] for o in ef["okna"]), dni)[0]
+        czasy_wlasciciela = czasy_wiadomosci([s for s in wszystkie_sesje(od_k, do, projekty, konf)[0] if w_zakresie(s)])
+    cache, oceny = {}, []
+    for _, _, koniec, _ in ef["okna"]:
+        od_k, do_k = wynik.okno_kohorty(koniec, dni)
+        if od_k.date() < ef["od_pobrania"]:
+            oceny.append((None, None))
+            continue
+        o = wynik.ocena(ef["wszystkie_pr"], od_k, do_k, ef["repo_sciezki"], ef["weryf"], konf, cache)
+        oceny.append((o, wynik.podsumowanie(o, ef["rekordy"], czasy_wlasciciela, konf)))
+    return {"ocena": oceny[-1][0], "podsumowanie": oceny[-1][1], "wiersze": wynik.wiersze_wynikow([p for _, p in oceny])}
 
 
 def nazwa_pliku(nazwa: str) -> str:
@@ -1237,6 +1272,7 @@ def main(argv=None):
 
     # Trend tygodniowy: cała historia (transkrypcje + archiwum), tylko dla pełnego zakresu (bez --projekt).
     trend_wiersze, trend_uwaga, zdalne_uwagi, archiwa = None, "", [], []
+    czasy_wlasciciela = None        # od 0.9.0: wiadomości właściciela całej historii (miary wyniku)
     if a.bez_trendu or katalog is None:
         trend_uwaga = t("trend_bez")
     elif wybrane:
@@ -1244,6 +1280,7 @@ def main(argv=None):
     else:
         historia, _ = wszystkie_sesje(EPOKA, dt.datetime.now().astimezone() + dt.timedelta(days=1), projekty, konf)
         arch = tokeny.aktualizuj_archiwum(katalog / tokeny.PLIK_ARCHIWUM, [s for s in historia if w_zakresie(s)])
+        czasy_wlasciciela = czasy_wiadomosci([s for s in historia if w_zakresie(s)])
         trend_wiersze = tokeny.zapisz_trend(katalog / tokeny.PLIK_TRENDU, tokeny.wiersze_tygodni(arch, cennik))
         archiwa.append((tokeny.ZRODLO, arch))
         # Źródła zdalne (`zrodla_zdalne`): osobne archiwum i wiersze `zrodlo=<nazwa>`; jedna próba na źródło.
@@ -1303,6 +1340,7 @@ def main(argv=None):
     pamiec_liczba, pamiec_zmiany, pamiec_bez_sesji = pamiec(foldery, od, projekty_folderow)
     ef = efektywnosc_danych(konf, katalog, a, cennik, archiwa, repo, repozytoria, gh, sesje, od, do, od_data, do_data,
                             projekty, srodowiska)
+    wyn = miary_wyniku(ef, konf, czasy_wlasciciela, projekty, w_zakresie, do)
     narzedzia = wyniki_narzedzi(sesje)
     ops = operacje.zestawienie(tok["wywolania_okna"], ef["definicje"], konf)
     (wyjscie / "operacje.json").write_text(json.dumps(ops, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1373,6 +1411,8 @@ def main(argv=None):
         **caveman.metryki(kontekst, konf),
         # od 0.8.0: kroki CI i deploy w sesjach głównych a u podagentów, długość sesji (zasada Z-012)
         **ops["metryki"],
+        # od 0.9.0: miary wyniku (kohorta 30–60 dni przed końcem okna)
+        **wynik.metryki(wyn["ocena"], wyn["podsumowanie"]),
     }
     if a.plan_uzyty:
         skala = 10 / a.plan_uzyty
@@ -1427,12 +1467,13 @@ def main(argv=None):
     l += raport_trendu(trend_wiersze, trend_uwaga, zdalne_uwagi)
     porown = efektywnosc.porownanie(katalog / "metryki.csv", metryki) if katalog is not None else ([], [])
     wyniki = efektywnosc.raport_wynikow(
-        efektywnosc.okna_retro(katalog / "metryki.csv" if katalog is not None else None, metryki, od, do),
-        ef["rekordy"], ef["rundy"], ef["polaczone"], ef["od_tygodnia"], konf.get("pr_progi_rozmiaru"), konf)
+        ef["okna"], ef["rekordy"], ef["rundy"], ef["polaczone"], ef["od_tygodnia"], konf.get("pr_progi_rozmiaru"), konf,
+        wyn["wiersze"])
     l += efektywnosc.raport(porown, ef["koszty"], ef["rundy"], od, do, ef["powroty"], ef["uwagi"],
                             przerwa=konf.get("pr_przerwa_rundy_min") or efektywnosc.PRZERWA_RUNDY_MIN,
                             polaczone=ef["polaczone"], wzorce=ef["wzorce"], progi=konf.get("pr_progi_rozmiaru"),
                             okna_kosztu=ef["okna_kosztu"], wyniki=wyniki)
+    l += wynik.raport(wyn["ocena"], wyn["podsumowanie"], progi=konf.get("pr_progi_rozmiaru"), konf=konf)
     l += agenci.raport(ef["definicje"], ef["wzorce"], ef["zmiany"], ef["efekty"], ef["przydzial"], ef["starty"],
                        ef["migawki"])
     l += caveman.raport(kontekst, konf)

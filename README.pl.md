@@ -22,6 +22,12 @@ Od 0.7.0 retro **kończy się tabelą wyników w czacie**: koszt i tokeny, koszt
 podział na model autora, rozmiar PR i poziom rozumowania, wobec 2–3 poprzednich retro, z oznaczeniem prób poniżej 5 PR.
 Podsumowanie ostrzega, gdy koszt tygodnia jest wysoki, a w śledzonych repo jest mało PR (praca mogła się przenieść).
 
+Od 0.9.0 retro **mierzy wynik, nie tylko proces**: dla PR scalonych 30–60 dni przed końcem okna akceptację (bez rundy
+poprawki i bez przeróbki późniejszym PR w ciągu 30 dni, z odwołań i `git blame`), koszt zaakceptowanej zmiany (cały
+koszt tego okresu oraz wiadomości i czas uwagi właściciela) i szczelność weryfikacji (błędy złapane przez przegląd
+agentowy wobec złapanych po akceptacji przeglądu albo na produkcji), wg konfiguracji implementatora i recenzenta,
+z trzema wierszami w tabeli wyników na zamknięcie retro.
+
 Od 0.8.0 retro **mierzy kroki CI i deployu per projekt**: koszt wywołań, które pilnują CI (`gh run`, `gh pr checks`)
 albo uruchamiają polecenia ops (`ssh`, `docker`, `systemctl`…) w sesjach głównych wobec podagentów, medianę wywołań
 na sesję główną oraz projekty bez agenta ops (Haiku `operator` / `obserwator-ci`) jako kandydatów do audytu

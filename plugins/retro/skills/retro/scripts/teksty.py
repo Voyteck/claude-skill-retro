@@ -761,6 +761,80 @@ TEKSTY = {
               "w projekcie skill project-agents (audyt, rola operatora).",
         "en": "**Candidates for a project agents audit (operator role):** {lista}. Proposed change: run the "
               "project-agents skill in the project (audit, operator role)."},
+    # miary wyniku (od 0.9.0, wynik.py)
+    "kier_lepiej_wzrost": {"pl": "↑ poprawa", "en": "↑ better"},
+    "kier_gorzej_spadek": {"pl": "↓ pogorszenie", "en": "↓ worse"},
+    "wy_tytul": {"pl": "### Miary wyniku: akceptacja, koszt zaakceptowanej zmiany, szczelność weryfikacji",
+                 "en": "### Outcome measures: acceptance, cost per accepted change, verification tightness"},
+    "wy_brak": {"pl": "Brak danych z GitHuba (gh pominięty albo repo bez dostępu): miary wyniku się nie liczą.",
+                "en": "No GitHub data (gh skipped or no repo access): outcome measures are not computed."},
+    "wy_opis": {
+        "pl": "Kohorta: PR scalone {od} … {do} (od {dni} do {dni2} dni przed końcem okna), bo dopiero po {dni} dniach "
+              "wiadomo, czy zmiana nie wróciła do poprawki. Zaakceptowany = bez rundy poprawki i bez późniejszego PR, "
+              "który go poprawił (odwołanie „fixes/follow-up/revert/popraw… #N” albo PR typu poprawka zmieniający jego "
+              "linie, `git blame`). `*` = mniej niż {min_pr} PR: wskazówka, nie wynik.",
+        "en": "Cohort: PRs merged {od} … {do} ({dni} to {dni2} days before the window end), because only after {dni} "
+              "days is it known whether a change came back for a fix. Accepted = no fix round and no later PR fixing "
+              "it (a reference \"fixes/follow-up/revert #N\" or a fix-type PR changing its lines, `git blame`). "
+              "`*` = fewer than {min_pr} PRs: a hint, not a result."},
+    "wy_pusta": {"pl": "Kohorta pusta: brak scalonych PR w tym okresie.",
+                 "en": "Empty cohort: no merged PRs in that period."},
+    "wy_akceptacja": {
+        "pl": "- **Akceptacja:** {akc}%{gw} ({n} z {pr} PR); przerobione w ciągu 30 dni: {przerobione}.",
+        "en": "- **Acceptance:** {akc}%{gw} ({n} of {pr} PRs); reworked within 30 days: {przerobione}."},
+    "wy_koszt": {
+        "pl": "- **Koszt zaakceptowanej zmiany:** koszt okna kohorty {koszt} (wszystkie źródła, także porzucone PR i "
+              "sesje bez PR) / zaakceptowane = **{na_zaakc}** (na scalony: {na_scal}). Wiadomości właściciela: {wiad}, "
+              "na zaakceptowaną zmianę {wiad_na}; czas uwagi (szacunek: odstępy ≤ 15 min) {h} h, na zaakceptowaną "
+              "zmianę {h_na} h.",
+        "en": "- **Cost per accepted change:** cohort window cost {koszt} (all sources, abandoned PRs and sessions "
+              "without a PR included) / accepted = **{na_zaakc}** (per merged: {na_scal}). Owner messages: {wiad}, "
+              "per accepted change {wiad_na}; attention time (estimate: gaps ≤ 15 min) {h} h, per accepted change "
+              "{h_na} h."},
+    "wy_szczelnosc": {
+        "pl": "- **Szczelność weryfikacji:** {szcz}% = złapane przez przegląd agentowy {zlapane} / (złapane + po "
+              "akceptacji przeglądu {po} + produkcja, przeróbka do 48 h {prod}). Heurystyka: wskazówka, nie dowód.",
+        "en": "- **Verification tightness:** {szcz}% = caught by agent review {zlapane} / (caught + after review "
+              "approval {po} + production, a rework within 48 h {prod}). A heuristic: a hint, not evidence."},
+    "wy_blame": {
+        "pl": "- `git blame` poprawek: {ok} sprawdzonych (w tym {zamiatanie} zamiatań: linie ponad {prog} PR, blame "
+              "pominięty), {klon} bez lokalnego klonu, {commit} bez commita w klonie (`git fetch` w repo, potem "
+              "ponownie `sygnaly.py`).",
+        "en": "- `git blame` of fixes: {ok} checked ({zamiatanie} of them sweeps: lines of more than {prog} PRs, blame "
+              "ignored), {klon} without a local clone, {commit} without the commit in the clone (`git fetch` in the "
+              "repo, then rerun `sygnaly.py`)."},
+    "wy_impl_kolumny": {"pl": "| implementator | rozmiar | PR | akceptacja | przerobione |",
+                        "en": "| implementer | size | PRs | acceptance | reworked |"},
+    "wy_rec_kolumny": {
+        "pl": "| recenzent | PR | złapane przez przegląd | po akceptacji | produkcja | szczelność |",
+        "en": "| reviewer | PRs | caught by review | after approval | production | tightness |"},
+    "wy_bez_przegladu": {"pl": "bez werdyktu przeglądu agenta", "en": "no agent review verdict"},
+    "wy_przerobione": {"pl": "Przerobione: ", "en": "Reworked: "},
+    "wy_sposob_odwolanie": {"pl": "odwołanie", "en": "reference"},
+    "wy_sposob_blame": {"pl": "blame", "en": "blame"},
+    "wy_wyn_akceptacja": {"pl": "akceptacja (kohorta 30–60 dni)", "en": "acceptance (30–60 day cohort)"},
+    "wy_wyn_koszt": {"pl": "koszt zaakceptowanej zmiany (kohorta)", "en": "cost per accepted change (cohort)"},
+    "wy_wyn_szczelnosc": {"pl": "szczelność weryfikacji (kohorta)", "en": "verification tightness (cohort)"},
+    "wy_kohorty": {
+        "pl": "Wiersze „kohorta”: PR scalone 30–60 dni przed końcem każdego okna (kohorty kroczące, sąsiednie się "
+              "nakładają); akceptacja i szczelność: więcej = lepiej.",
+        "en": "\"Cohort\" rows: PRs merged 30–60 days before the end of each window (rolling cohorts, neighbours "
+              "overlap); acceptance and tightness: more = better."},
+    "wy_ograniczenia": {
+        "pl": "Ograniczenia: rebase i squash zmieniają historię linii (commity PR spoza `main` blame nie widzi, widzi "
+              "commit scalenia); pliki kopii reguł (`wynik_pomin_sciezki`, domyślnie `CLAUDE.md`, `AGENTS.md`, `docs/`) "
+              "pominięte; „po akceptacji” = powrót implementatora po pozytywnym werdykcie przeglądu (zwykle polecenie "
+              "właściciela, czasem konflikt albo rebase); produkcja = przeróbka scalona do 48 h po scaleniu (scalenie jako "
+              "przybliżenie deployu); poprawka zmieniająca linie ponad 3 PR to zamiatanie (blame pominięty); komentarzy właściciela w PR skrypt nie czyta; czas uwagi "
+              "nie obejmuje pracy poza Claude Code; transkrypcje starsze niż `cleanupPeriodDays` zniknęły (brak "
+              "implementatora i recenzenta).",
+        "en": "Limits: rebase and squash change line history (blame does not see PR commits outside `main`, it sees "
+              "the merge commit); rule-copy files (`wynik_pomin_sciezki`, default `CLAUDE.md`, `AGENTS.md`, `docs/`) "
+              "skipped; \"after approval\" = an implementer return after a positive review verdict (usually the owner's "
+              "request, sometimes a conflict or rebase); production = a rework merged within 48 h of the merge (merge "
+              "as a proxy for deploy); a fix changing lines of more than 3 PRs is a sweep (blame ignored); the owner's PR comments are not read; attention time misses "
+              "work outside Claude Code; transcripts older than `cleanupPeriodDays` are gone (no implementer or "
+              "reviewer)."},
 }
 
 

@@ -33,6 +33,11 @@ defaults from `scripts/wspolne.py` (`DOMYSLNA_KONFIGURACJA`). Change it by hand 
 | `pr_pomin_galezie` | `["integration/", "batch/"]` | head branch prefixes skipped in fix rounds (integration batches) |
 | `pr_progi_rozmiaru` | `[50, 300]` | PR size buckets in lines (additions + deletions): S up to the first, M up to the second, L above (since 0.4.0) |
 | `ostrzezenie_koszt_tygodnia_usd` | `100` | from this weekly cost (USD, all sources) the summary warns about no merged PRs in tracked repos, or a cost per PR 3 times the other weeks: work may have moved to an untracked repo (since 0.7.0) |
+| `wynik_dni` | `30` | outcome measures (since 0.9.0): days a merged PR has to come back for a fix; the cohort is PRs merged `2·wynik_dni` to `wynik_dni` days before the window end |
+| `wynik_hotfix_h` | `48` | a rework (reference or blame) merged within this many hours after a merge counts as a production catch (verification tightness) |
+| `wynik_zamiatanie_pr` | `3` | a fix whose blame hits lines of more than this many PRs is a sweep: its blame is ignored |
+| `wynik_pomin_sciezki` | `["CLAUDE.md", "AGENTS.md", "docs/"]` | paths skipped by the outcome measures (blame, same files): rule copies synced across repos; a name matches in any directory, `x/` a directory |
+| `wynik_uwaga_przerwa_min` | `15` | attention time estimate: gaps between consecutive owner messages up to this many minutes are summed |
 | `ops_prog_proc`, `ops_prog_usd` | `10`, `1` | audit candidate for the operator role (since 0.8.0): main-session CI/deploy share of a project's cost above `ops_prog_proc` %, or no ops agent (or none on Haiku), when the project's ops cost reaches `ops_prog_usd`; see `references/sygnaly.md`, "CI and deploy steps" |
 | `caveman` | `standard` | compression level of context files (since 0.6.0): `wyl` (off: sizes only), `lekki` (lite), `standard`, `ultra`; rules in `references/caveman.md` |
 | `komunikacja_poziom` | `normalny` | style of messages to the user (since 0.7.1): `normalny` (plain), `caveman`, `ultra`; rules in `references/caveman.md`, "Communication style" |

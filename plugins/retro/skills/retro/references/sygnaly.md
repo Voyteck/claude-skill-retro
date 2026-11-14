@@ -91,6 +91,10 @@ Columns since 0.1.3 (in `metryki.csv` at the end, after `zobowiazania_aktywne`; 
 | `ops_podagenci_proc` (since 0.8.0) | subagents' share of the ops cost | more = better (not in the comparison, which assumes more = worse) |
 | `ops_glowna_wg_projektu` (since 0.8.0) | main-session ops share of each project's cost, `minos:33;blog:29` (projects with ≥ $0.50 main-session ops) | trend per project across retros |
 | `ops_kandydaci_audytu` (since 0.8.0) | projects flagged for a project-agents audit (operator role) | criteria in "CI and deploy steps" |
+| `kohorta_od`, `kohorta_do`, `kohorta_pr` (since 0.9.0) | the cohort of the outcome measures: first and last merge day, PRs | see "Outcome measures"; empty without `gh` |
+| `akceptacja_proc`, `akceptacja_proc_wg_impl`, `pr_przerobione_30d` (since 0.9.0) | % of the cohort accepted (no fix round, no rework within 30 days), the same by implementer configuration `Opus/high:80;sesja główna:50`, reworked PRs | more = better (not in the comparison, which assumes more = worse) |
+| `koszt_na_zaakceptowany_usd`, `wiad_na_zaakceptowany`, `uwaga_h_na_zaakceptowany` (since 0.9.0) | cohort window cost (all sources) per accepted PR; owner messages and attention hours (estimate) per accepted PR | the first two are compared with previous retros (more = worse) |
+| `szczelnosc_proc`, `bledy_zlapane_agenci`, `bledy_po_akceptacji`, `bledy_produkcja`, `szczelnosc_proc_wg_recenzenta` (since 0.9.0) | verification tightness of the cohort and its parts; by reviewer configuration `Sonnet/high:75` | a heuristic, a hint not evidence |
 | `zadania_na_sesje_mediana`, `sesje_ponad_150_zadan` (since 0.8.0) | median API calls of a main session (the whole session, also before the window, for sessions with main-session calls in the window); sessions over 150 | rule Z-012: handoff after ~150 requests; the median is compared with previous retros |
 
 ## CI and deploy steps: main session vs subagents (since 0.8.0)
@@ -178,7 +182,7 @@ section 2a of the retro document.
   also carry the reasoning effort (`effort` of each assistant record: low, medium, high, xhigh, max); the local
   archive and `zbierz_liczby.py` store it as `eff`, calls without it (older transcripts, remote reads made with an
   older `zbierz_liczby.py`) have no effort in the label.
-- **Fix rounds in merged PRs:** `gh api graphql` (search, 40 PRs per page, at most 10 pages per repo; `gh pr list
+- **Fix rounds in merged PRs:** `gh api graphql` (search, 40 PRs per page, at most 25 pages per repo, since 0.9.0 (10 before): the search limit of 1000; `gh pr list
   --json commits` exceeds the GraphQL node limit). Commits sorted by author date (robust to rebase), without merge
   commits; a batch after a break longer than `pr_przerwa_rundy_min` is a round. The author model is the most frequent
   model of the first batch. A commit's model: with an `Agent: <name>` trailer (optional convention, since 0.7.2) the
@@ -225,6 +229,48 @@ section 2a of the retro document.
   the role of an agent depends on its type name; a main session that implements and fixes by itself has no returns
   and no cost per PR; PRs whose task never mentions their number get no cost; with fewer than 5 PRs in a cell the
   comparison between configurations is a hint only.
+
+## Outcome measures (since 0.9.0)
+
+The summary section "Outcome measures" („Miary wyniku”, `scripts/wynik.py`) and three rows of "Results against previous
+retros". Until 0.8.x the retro measured the process before merge (fix rounds, returns from review and CI); these
+measures look at what happened to the code after merge. No new data from the user: GitHub, the local clone,
+agent events and owner message times.
+
+- **Cohort:** PRs merged in `[end − 2·wynik_dni, end − wynik_dni)` (default 30–60 days before the end of the window),
+  because only after `wynik_dni` days is it known whether a change came back. Each window of the results table has its
+  own cohort (rolling cohorts, neighbours overlap). PR data is fetched from the start of the oldest cohort; the weekly
+  and window tables still use only `efektywnosc_tygodnie`. The GraphQL query also reads the title, the body (only PR
+  numbers are kept), the files (first 100) and the merge commit.
+- **1. Acceptance:** % of the cohort's PRs with no fix round and not reworked within `wynik_dni` days. Reworked = a later
+  PR in the same repo that (a) refers to it as fixed: "fix/fixes/hotfix/revert/follow-up/popraw…/napraw… #N" (also
+  "follow-up to #N", "poprawka do #N", a `/pull/N` link), or (b) is a fix-type PR (title starting `fix`, `hotfix`,
+  `bugfix`, `revert`, `popraw`, `napraw`, also `fix(scope):`) that mentions `#N` or changes its lines: `git diff -U0`
+  of the fix's merge commit against its first parent, then `git blame -L` on that parent hits one of the PR's commits
+  or its merge commit (squash and merge commits are found; a rebase merge with new hashes is not). Blame needs the
+  merge commits in the local clone; the section counts fixes checked, without a clone and without the commit (`git
+  fetch`, then rerun). A fix whose blame hits lines of more than `wynik_zamiatanie_pr` (default 3) different PRs is a
+  sweep (dependency bump, code removal, a move: R08 smoke, ops#209 removed 17k lines of 8 PRs): its blame is ignored,
+  its references count. Paths in `wynik_pomin_sciezki` (default `CLAUDE.md`, `AGENTS.md`, `docs/`: rule copies synced
+  across repos) are skipped. By implementer configuration (model · effort of the first implementation agent, as in the
+  cost table) and PR size.
+- **2. Cost per accepted change:** the cost of the cohort window from the trend archives of all sources (abandoned
+  PRs and sessions without a PR included) / accepted PRs; next to it the cost per merged PR. Owner messages in the
+  cohort window (local transcripts, the same count as `wiad_wlasciciela`) per accepted change, and the attention time:
+  the sum of gaps between consecutive owner messages (all sessions together) up to `wynik_uwaga_przerwa_min` minutes,
+  labelled an estimate.
+- **3. Verification tightness:** caught by agent review / (caught by agent review + caught after review approval +
+  production). Caught by review = an implementer started or continued on the PR after a negative review verdict (the
+  returns already counted). After approval = an implementer started or continued after a positive verdict with no red
+  CI in between (usually the owner's request after the review passed; sometimes a conflict or rebase). Production = a
+  rework from measure 1 (reference or blame) merged within `wynik_hotfix_h` hours after the merge; the merge stands in
+  for the deploy. (A first draft counted any fix-type PR on the same files: on ops 27 catches for 33 PRs, noise from
+  shared files.) By reviewer configuration (model · effort of the last review agent with a verdict;
+  PRs without one form their own row). Returns from red CI are neither.
+- **Results table:** rows "acceptance (30–60 day cohort)", "cost per accepted change (cohort)", "verification tightness
+  (cohort)"; acceptance and tightness: more = better (↑ better), cost: more = worse. `*` = cohort under 5 PRs, no
+  direction.
+- **Limits:** see "Limitations" below.
 
 ## Tokens and cost
 
@@ -322,6 +368,12 @@ time.
 - **Commits and time.** git selects commits for the window by committer date (`--since`), and stops walking a
   branch at the first commit older than the window start: after a rebase with out-of-order dates some commits may
   drop out.
+- **Outcome measures (since 0.9.0).** Rebase and squash change line history: blame sees the merge commit of a squash
+  or merge, not PR commits rewritten by a rebase merge. A fix-type title is a convention; a fix PR named `feat: …`
+  without a reference is not seen. "After approval" also catches a return for a conflict or rebase; the owner's PR
+  comments are not read. The merge stands in for the deploy. Attention time covers only messages in local
+  transcripts, not work outside Claude Code. With the default `cleanupPeriodDays` (30) the cohort's transcripts are
+  gone: no implementer, reviewer or owner messages, so set it higher (see Retention).
 - **The transcript format** is not a public Claude Code API and may change. When numbers suddenly drop to zero,
   check the script against a fresh transcript.
 - **GitHub** only through `gh` logged in to an account with access to the repo (or a per-repo token from

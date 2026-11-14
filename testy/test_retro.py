@@ -2330,5 +2330,188 @@ class Test090Podagenci(unittest.TestCase):
         self.assertIn(("wergiliusz-hq/mitm", 9), k)
 
 
+class Test090Wynik(Srodowisko):
+    """Zmiany 0.9.0: miary wyniku (akceptacja kohorty, koszt zaakceptowanej zmiany, szczelność weryfikacji)."""
+
+    STREFA = dt.timezone(dt.timedelta(hours=1))
+
+    def setUp(self):
+        super().setUp()
+        import teksty
+        teksty.ustaw("pl")
+
+    def git(self, *argumenty):
+        r = subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-C", str(self.repo),
+                            *argumenty], check=True, capture_output=True, text=True)
+        return r.stdout.strip()
+
+    def commit(self, plik, tresc, opis):
+        (self.repo / plik).parent.mkdir(parents=True, exist_ok=True)
+        (self.repo / plik).write_text(tresc, encoding="utf-8")
+        self.git("add", plik)
+        self.git("commit", "-q", "-m", opis)
+        return self.git("rev-parse", "HEAD")
+
+    def pr(self, nr, kiedy, rundy=0, tytul="feat: x", opis="", oid=None, sciezki=(), linie=20, impl=None):
+        import collections
+        import tokeny
+        import wynik
+        wsz, popr = wynik.odwolania(tytul, opis)
+        scalony = kiedy.astimezone()
+        return {"repo": "w/r", "pr": nr, "scalony": scalony, "tydzien": tokeny.poniedzialek(scalony), "autor": "Opus",
+                "rundy": rundy, "commity": 1, "poprawki": collections.Counter(), "h": 1.0, "linie": linie, "pliki": 1,
+                "tytul": tytul, "odwolania": wsz, "odwolania_poprawki": popr, "oid": oid, "oidy": [],
+                "sciezki": list(sciezki), "pr_impl": impl, "pr_koszt": collections.Counter() if impl else None}
+
+    def test_odwolania_i_typ_poprawki(self):
+        import wynik
+        wsz, popr = wynik.odwolania("fix(hook): follow-up to #12", "Fixes #7, part of #30. https://github.com/w/r/pull/44")
+        self.assertEqual(wsz, {12, 7, 30, 44})
+        self.assertEqual(popr, {12, 7})
+        self.assertEqual(wynik.odwolania("feat: x", "Poprawka do #5; zob. #6")[1], {5})
+        self.assertTrue(wynik.czy_poprawka({"tytul": "fix(ci): x"}))
+        self.assertTrue(wynik.czy_poprawka({"tytul": "Revert \"feat: y\""}))
+        self.assertFalse(wynik.czy_poprawka({"tytul": "feat: prefix fixer"}))
+        self.assertTrue(wynik.pominieta("docs/a.md", wynik.POMIN_SCIEZKI))
+        self.assertTrue(wynik.pominieta("pod/CLAUDE.md", wynik.POMIN_SCIEZKI))
+        self.assertFalse(wynik.pominieta("src/docs.py", wynik.POMIN_SCIEZKI))
+
+    def test_kohorta_blame_odwolanie_produkcja(self):
+        import wynik
+        baza = dt.datetime(2026, 9, 1, 12, 0, tzinfo=self.STREFA)
+        a = self.commit("src/a.py", "x = 1\ny = 2\nz = 3\n", "feat: a (#1)")
+        b = self.commit("src/b.py", "b = 1\n", "feat: b (#2)")
+        c = self.commit("CLAUDE.md", "# reguły\n- jedna\n- dwie\n", "feat: reguły (#3)")
+        f1 = self.commit("src/a.py", "x = 1\ny = 20\nz = 3\n", "fix: y (#10)")       # zmienia linię PR 1
+        f2 = self.commit("CLAUDE.md", "# reguły\n- jedna\n- trzy\n", "fix: reguły (#11)")  # kopia reguł: pominięta
+        f3 = self.commit("src/c.py", "c = 1\n", "fix: c (#12)")                          # nowy plik: nic nie zmienia
+        wszystkie = [
+            self.pr(1, baza, oid=a, sciezki=["src/a.py"]),
+            self.pr(2, baza, oid=b, sciezki=["src/b.py"]),
+            self.pr(3, baza, oid=c, sciezki=["CLAUDE.md"]),
+            self.pr(4, baza, rundy=1, sciezki=["src/d.py"]),
+            self.pr(5, baza, sciezki=["src/e.py"]),
+            self.pr(10, baza + dt.timedelta(hours=30), tytul="fix: y", oid=f1, sciezki=["src/a.py"]),
+            self.pr(11, baza + dt.timedelta(days=3), tytul="fix: reguły", oid=f2, sciezki=["CLAUDE.md"]),
+            self.pr(12, baza + dt.timedelta(days=3), tytul="fix: c", oid=f3, sciezki=["src/c.py"]),
+            self.pr(13, baza + dt.timedelta(days=5), tytul="feat: z", opis="Follow-up to #5"),
+            self.pr(14, baza + dt.timedelta(days=40), tytul="fix: późno", opis="Fixes #2"),     # po 30 dniach
+        ]
+        od, do = baza - dt.timedelta(days=1), baza + dt.timedelta(days=1)
+        weryf = {("w/r", 1): {"zlapane": 2, "po_akceptacji": 0, "recenzent": ("claude-sonnet-5-5", "high")},
+                 (None, 5): {"zlapane": 0, "po_akceptacji": 1, "recenzent": ("claude-sonnet-5-5", "high")}}
+        o = wynik.ocena(wszystkie, od, do, {"w/r": str(self.repo)}, weryf)
+        pr = {r["pr"]: r for r in o["pr"]}
+        self.assertEqual(sorted(pr), [1, 2, 3, 4, 5])
+        self.assertEqual(pr[1]["przerobki"], [(10, "blame")])
+        self.assertEqual(pr[1]["produkcja"], [10])                   # poprawka tych samych plików do 48 h
+        self.assertEqual(pr[3]["przerobki"], [])                     # CLAUDE.md pominięty
+        self.assertEqual(pr[5]["przerobki"], [(13, "odwolanie")])
+        self.assertEqual(pr[2]["przerobki"], [])                     # odwołanie po 30 dniach się nie liczy
+        self.assertEqual([n for n in sorted(pr) if pr[n]["zaakceptowany"]], [2, 3])   # 4: runda poprawki
+        self.assertEqual(o["blame"]["ok"], 3)              # 3 poprawki, każda sprawdzona raz
+        self.assertEqual((pr[1]["zlapane"], pr[5]["po_akceptacji"]), (2, 1))
+        # koszt okna kohorty i czas uwagi: odstępy 5 + 5 min, 30 min przerwy się nie liczy
+        rekordy = [("lokalne", [{"czas": baza, "koszt": 10.0}, {"czas": baza + dt.timedelta(days=9), "koszt": 99.0}])]
+        czasy = [baza + dt.timedelta(minutes=m) for m in (0, 5, 10, 40)]
+        p = wynik.podsumowanie(o, rekordy, czasy)
+        self.assertEqual((p["pr"], p["zaakceptowane"], p["akceptacja"], p["przerobione"]), (5, 2, 40.0, 2))
+        self.assertEqual((p["koszt_na_zaakceptowany"], p["koszt_na_scalony"]), (5.0, 2.0))
+        self.assertEqual((p["wiad"], p["wiad_na_zaakceptowany"], p["uwaga_h"]), (4, 2.0, 0.2))
+        self.assertEqual((p["zlapane"], p["po_akceptacji"], p["produkcja"], p["szczelnosc"]), (2, 1, 1, 50.0))
+        m = wynik.metryki(o, p)
+        self.assertEqual((m["akceptacja_proc"], m["szczelnosc_proc"], m["kohorta_pr"]), (40.0, 50.0, 5))
+        self.assertEqual(m["szczelnosc_proc_wg_recenzenta"], "Sonnet/high:50")
+        l = "\n".join(wynik.raport(o, p))
+        self.assertIn("**Akceptacja:** 40%", l)
+        self.assertIn("w/r#1 ← #10 (blame)", l)
+        self.assertIn("| Sonnet · high | 2* | 2 | 1 | 1 | 50% |", l)
+        # zamiatanie: poprawka zmieniająca linie ponad `wynik_zamiatanie_pr` PR nie przerabia żadnego z nich
+        o = wynik.ocena(wszystkie, od, do, {"w/r": str(self.repo)}, {}, {"wynik_zamiatanie_pr": 0})
+        self.assertEqual({r["pr"]: r["przerobki"] for r in o["pr"]}[1], [])
+        self.assertEqual(o["blame"]["zamiatanie"], 1)
+        # bez lokalnego klonu: blame nie działa, odwołania tak
+        o = wynik.ocena(wszystkie, od, do, {}, {})
+        self.assertEqual({r["pr"]: r["przerobki"] for r in o["pr"]}[1], [])
+        self.assertGreater(o["blame"]["brak_klonu"], 0)
+
+    def test_weryfikacja_w_zdarzeniach(self):
+        import efektywnosc as ef
+        import wynik
+        z = lambda m, rodzaj, typ, **x: dict({"ts": f"2026-09-01T10:{m:02d}:00Z", "s": "s1", "rodzaj": rodzaj,  # noqa: E731
+                                                "typ": typ, "pr": [7]}, **x)
+        dane = {"agenci": {"r1": {"typ": "przeglad", "model": "claude-sonnet-5-5", "tokeny": {"eff": "high"}}},
+                "zdarzenia": [z(1, "start", "programista"), z(2, "raport", "przeglad", agent="r1", werdykt="negatywny"),
+                              z(3, "kontynuacja", "programista"), z(4, "raport", "przeglad", agent="r1", werdykt="pozytywny"),
+                              z(5, "raport", "obserwator-ci", ci=[[7, "porazka"]]), z(6, "kontynuacja", "programista"),
+                              z(7, "raport", "przeglad", agent="r1", werdykt="pozytywny"),
+                              z(8, "kontynuacja", "programista")]}
+        w = wynik.weryfikacja_pr([(dane, {"s1": "w/r"})], ef.wzorce_rol({}))
+        self.assertEqual(w[("w/r", 7)], {"zlapane": 1, "po_akceptacji": 1, "recenzent": ("claude-sonnet-5-5", "high")})
+
+    def test_wiersze_tabeli_wynikow(self):
+        import wynik
+        o = lambda akc, koszt: {"pr": 10, "zaakceptowane": akc // 10, "akceptacja": akc,  # noqa: E731
+                                "koszt_na_zaakceptowany": koszt, "szczelnosc": None, "zlapane": 0,
+                                "po_akceptacji": 0, "produkcja": 0}
+        wiersze = wynik.wiersze_wynikow([o(50, 10.0), None, o(80, 20.0)])
+        self.assertEqual(wiersze[0], ("akceptacja (kohorta 30–60 dni)", ["50% (5/10)", "—", "80% (8/10)"], "↑ poprawa"))
+        self.assertEqual(wiersze[1][2], "**↑ pogorszenie**")
+        self.assertEqual(wiersze[2][1], ["—", "—", "—"])
+        self.assertEqual(wynik.czas_uwagi_h([]), 0)
+
+    def test_sygnaly_kohorta_z_falszywego_gh(self):
+        """Całość: PR sprzed 45 dni i poprawka z odwołaniem; kolumny metryki.csv i sekcja w podsumowaniu."""
+        subprocess.run(["git", "-C", str(self.repo), "remote", "add", "origin", "https://example.com/w/r.git"], check=True)
+        teraz = dt.datetime.now(dt.timezone.utc)
+        iso = lambda dni: (teraz - dt.timedelta(days=dni)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+        pr = lambda n, dni, tytul, opis="": {  # noqa: E731
+            "number": n, "createdAt": iso(dni + 0.1), "mergedAt": iso(dni), "headRefName": f"b{n}", "additions": 10,
+            "deletions": 0, "changedFiles": 1, "title": tytul, "body": opis, "mergeCommit": {"oid": "0" * 40},
+            "files": {"nodes": [{"path": f"src/{n}.py"}]},
+            "commits": {"totalCount": 1, "nodes": [{"commit": {"oid": f"{n:040d}", "authoredDate": iso(dni + 0.1),
+                                                              "messageHeadline": tytul, "messageBody": "",
+                                                              "parents": {"totalCount": 1}}}]}}
+        odpowiedz = {"data": {"search": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [
+            pr(1, 45, "feat: a"), pr(2, 44, "feat: b"), pr(3, 20, "feat: c", "Follow-up to #1"), pr(4, 1, "feat: d")]}}}
+        (self.tmp / "gh-odpowiedz.json").write_text(json.dumps(odpowiedz), encoding="utf-8")
+        kod = ("import sys\na = sys.argv[1:]\n"
+               "if a[:2] == ['repo', 'view']: print('w/r')\n"
+               f"elif a[:2] == ['api', 'graphql']: print(open(r'{self.tmp / 'gh-odpowiedz.json'}', encoding='utf-8').read())\n"
+               "else: print('[]')\n")
+        (self.tmp / "gh_falszywy.py").write_text(kod, encoding="utf-8")
+        if os.name == "nt":
+            gh = self.tmp / "gh.cmd"
+            gh.write_text(f'@"{sys.executable}" "{self.tmp / "gh_falszywy.py"}" %*\n', encoding="utf-8")
+        else:
+            gh = self.tmp / "gh"
+            gh.write_text(f"#!{sys.executable}\n" + kod, encoding="utf-8")
+            gh.chmod(0o755)
+        self.zaloz_konto()
+        ws = self.tmp / "ws"
+        konf = json.loads((ws / "konfiguracja.json").read_text(encoding="utf-8"))
+        konf["gh"] = str(gh)
+        (ws / "konfiguracja.json").write_text(json.dumps(konf), encoding="utf-8")
+        wyjscie = self.tmp / "wyn"
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--wyjscie", str(wyjscie))
+        m = json.loads((wyjscie / "metryki.json").read_text(encoding="utf-8"))
+        self.assertEqual((m["kohorta_pr"], m["akceptacja_proc"], m["pr_przerobione_30d"]), (2, 50.0, 1))
+        self.assertEqual(m["pr_analizowane"], 0)                    # stare PR nie wchodzą do tabel tygodni ani okna
+        p = (wyjscie / "podsumowanie.md").read_text(encoding="utf-8")
+        self.assertIn("### Miary wyniku", p)
+        self.assertIn("w/r#1 ← #3 (odwołanie)", p)
+        self.assertRegex(p, r"\| akceptacja \(kohorta 30–60 dni\) \| 50% \(1/2\)\* \| — \|")
+        naglowek = (SKRYPTY.parent / "assets" / "metryki-naglowek.csv").read_text(encoding="utf-8").split(",")
+        self.assertTrue(all(k in [x.strip() for x in naglowek] for k in wynik_kolumny()))
+        # bez gh: sekcja mówi, że brak danych
+        self.uruchom("sygnaly.py", "--od", dt.date.today().isoformat(), "--wyjscie", str(wyjscie), "--bez-gh")
+        self.assertIn("Brak danych z GitHuba", (wyjscie / "podsumowanie.md").read_text(encoding="utf-8"))
+
+
+def wynik_kolumny() -> list:
+    import wynik
+    return list(wynik.metryki(None, None))
+
+
 if __name__ == "__main__":
     unittest.main()

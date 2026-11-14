@@ -1,5 +1,33 @@
 # Zmiany
 
+## 0.9.0 · 2026-11-15
+
+Miary wyniku pracy, nie tylko procesu (retro R08, issue #23, miary 1–3 i 5; miara 4, hipoteza wartości, później).
+Nowy skrypt `wynik.py`; sekcja podsumowania „Miary wyniku” i trzy wiersze tabeli „Wyniki wobec poprzednich retro”.
+
+- **Kohorta:** PR scalone 30–60 dni przed końcem okna (`wynik_dni`), bo dopiero po 30 dniach wiadomo, czy zmiana nie
+  wróciła. Każde okno tabeli wyników ma własną kohortę (kroczące). PR pobierane od początku najstarszej kohorty; tabele
+  tygodni i okna bez zmian (`efektywnosc_tygodnie`). Zapytanie GraphQL czyta też tytuł, opis (zostają tylko numery PR),
+  pliki i commit scalenia. Limit stron wyszukiwania 10 → 25 (1000 PR na repo, limit GitHuba).
+- **Akceptacja:** % PR bez rundy poprawki, których w ciągu 30 dni nie przerobił późniejszy PR: odwołanie
+  „fix/fixes/hotfix/revert/follow-up/popraw…/napraw… #N” albo PR typu poprawka, który wspomina `#N` lub zmienia linie
+  tego PR (`git blame -L` na rodzicu commita scalenia poprawki trafia w commity PR albo jego commit scalenia). Pliki
+  kopii reguł (`wynik_pomin_sciezki`: `CLAUDE.md`, `AGENTS.md`, `docs/`) pominięte. Wg implementatora (model · poziom)
+  i rozmiaru.
+- **Koszt zaakceptowanej zmiany:** koszt okna kohorty ze wszystkich źródeł / zaakceptowane PR; obok wiadomości
+  właściciela i szacunek czasu uwagi (suma odstępów ≤ 15 min, `wynik_uwaga_przerwa_min`) na zaakceptowaną zmianę.
+- **Szczelność weryfikacji:** złapane przez przegląd agentowy / (złapane + powrót implementatora po pozytywnym
+  werdykcie + przeróbka z akceptacji scalona do 48 h po scaleniu, `wynik_hotfix_h`). Wg recenzenta (model · poziom).
+  Heurystyka: wskazówka, nie dowód.
+- **Zamiatanie:** poprawka, której blame trafia w linie ponad 3 PR (`wynik_zamiatanie_pr`; podbicie zależności,
+  usunięcie kodu), nie przerabia żadnego z nich: blame pominięty, odwołania zostają. Dym na ops (kohorta 11-01…11-07,
+  33 PR): akceptacja 60,6%, 5 przerobionych, 2 zamiatania (m.in. ops#209: −17k linii w 8 PR).
+- **Nowe kolumny `metryki.csv`:** `kohorta_od`, `kohorta_do`, `kohorta_pr`, `akceptacja_proc`,
+  `akceptacja_proc_wg_impl`, `pr_przerobione_30d`, `koszt_na_zaakceptowany_usd`, `wiad_na_zaakceptowany`,
+  `uwaga_h_na_zaakceptowany`, `szczelnosc_proc`, `bledy_zlapane_agenci`, `bledy_po_akceptacji`, `bledy_produkcja`,
+  `szczelnosc_proc_wg_recenzenta`; `koszt_na_zaakceptowany_usd` i `wiad_na_zaakceptowany` w porównaniu z poprzednimi
+  retro. `SKILL.md` krok 6: wiersze wyniku w tabeli zamknięcia, z zastrzeżeniem, że opisują pracę sprzed 30–60 dni.
+
 ## 0.8.3 · 2026-11-14
 
 - **Tabela „Wyniki wobec poprzednich retro” znormalizowana** (retro R08): okna różnią się długością i natężeniem
