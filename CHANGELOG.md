@@ -1,5 +1,14 @@
 # Zmiany
 
+## 0.8.3 · 2026-11-14
+
+- **Tabela „Wyniki wobec poprzednich retro” znormalizowana** (retro R08): okna różnią się długością i natężeniem
+  pracy, więc sumy nie porównują się między nimi. Nowe wiersze: dni robocze okna, koszt i scalone PR na dzień roboczy
+  (kalendarz z konfiguracji, najmniej 1), % PR z poprawką i rundy na PR przy stałej mieszance rozmiarów (wyniki S/M/L
+  ważone wspólną mieszanką wszystkich PR tabeli; mieszanka podana pod tabelą). Kierunek tych wierszy jak dotąd,
+  wobec mediany poprzednich okien. Przykład R08: surowo 42,2% z poprawką („pogorszenie” wobec R07 50%), przy
+  mieszance R07 41,7%. `SKILL.md` krok 6: kierunek czytany z wierszy znormalizowanych.
+
 ## 0.8.2 · 2026-11-08
 
 - **Nowy skrypt `podagenci.py`** (PR #20): starty podagentów na scalony PR, podział kosztu (pierwszy zapis cache /

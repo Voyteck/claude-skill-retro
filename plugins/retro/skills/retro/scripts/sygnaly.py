@@ -1428,7 +1428,7 @@ def main(argv=None):
     porown = efektywnosc.porownanie(katalog / "metryki.csv", metryki) if katalog is not None else ([], [])
     wyniki = efektywnosc.raport_wynikow(
         efektywnosc.okna_retro(katalog / "metryki.csv" if katalog is not None else None, metryki, od, do),
-        ef["rekordy"], ef["rundy"], ef["polaczone"], ef["od_tygodnia"], konf.get("pr_progi_rozmiaru"))
+        ef["rekordy"], ef["rundy"], ef["polaczone"], ef["od_tygodnia"], konf.get("pr_progi_rozmiaru"), konf)
     l += efektywnosc.raport(porown, ef["koszty"], ef["rundy"], od, do, ef["powroty"], ef["uwagi"],
                             przerwa=konf.get("pr_przerwa_rundy_min") or efektywnosc.PRZERWA_RUNDY_MIN,
                             polaczone=ef["polaczone"], wzorce=ef["wzorce"], progi=konf.get("pr_progi_rozmiaru"),

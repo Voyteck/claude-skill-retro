@@ -364,7 +364,11 @@ table with a sentence, and do not point to section 2a instead of it.
 
 1. **Results table against the previous 2–3 retros.** Copy "Results against previous retros" („Wyniki wobec poprzednich
    retro”) from the summary as a table: cost and tokens, cost per merged PR, % of PRs with a fix, rounds per PR, the
-   split by author model, PR size and implementer effort (when known), and the direction column. Rules:
+   split by author model, PR size and implementer effort (when known), the normalised rows (per working day, at a fixed
+   size mix) and the direction column. Rules:
+   - judge the direction by the normalised rows; the window totals (cost, tokens, merged PRs) do not compare between
+     windows of different length or intensity. When the raw and the fixed-mix % with a fix point different ways, say
+     that the change comes from the size mix;
    - keep every `*`: a number from fewer than 5 PRs is marked, and in the sentences below it is called a hint, not a
      result. A cell or row with no data stays "—": say what is missing, do not fill it by hand or drop the row;
    - directly under the table repeat every **Note:** / **Uwaga:** of the section that changes how it reads, above all
