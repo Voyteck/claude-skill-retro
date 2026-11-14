@@ -404,6 +404,24 @@ TEKSTY = {
     "ef_wyn_bez_impl": {"pl": "bez przypisanego implementatora", "en": "no implementer attributed"},
     "ef_wyn_poziom": {"pl": "koszt wg poziomu: {p}", "en": "cost by effort: {p}"},
     "ef_wyn_poziom_brak": {"pl": "nieznany", "en": "unknown"},
+    "ef_wyn_dni": {"pl": "dni robocze okna", "en": "working days in the window"},
+    "ef_wyn_koszt_dzien": {"pl": "koszt na dzień roboczy", "en": "cost per working day"},
+    "ef_wyn_pr_dzien": {"pl": "scalone PR na dzień roboczy", "en": "merged PRs per working day"},
+    "ef_wyn_z_poprawka_std": {"pl": "% PR z poprawką przy stałej mieszance rozmiarów",
+                              "en": "% PRs with a fix at a fixed size mix"},
+    "ef_wyn_rundy_std": {"pl": "rundy na PR przy stałej mieszance rozmiarów",
+                         "en": "rounds per PR at a fixed size mix"},
+    "ef_wyn_mieszanka": {
+        "pl": "Normalizacja: wiersze „na dzień roboczy” dzielą sumy okna przez jego dni robocze (kalendarz z konfiguracji, "
+              "najmniej 1). Wiersze „przy stałej mieszance rozmiarów” ważą wynik każdego rozmiaru PR tą samą mieszanką: "
+              "{mieszanka} (suma PR okien tej tabeli), więc zmiana udziału dużych PR nie przesuwa kierunku; „—”, gdy "
+              "okno nie ma PR któregoś rozmiaru z mieszanki. Kierunek czytaj z wierszy znormalizowanych, sumy okna "
+              "(koszt, tokeny, scalone PR) to tylko kontekst.",
+        "en": "Normalisation: the \"per working day\" rows divide the window's totals by its working days (calendar from "
+              "the configuration, at least 1). The \"at a fixed size mix\" rows weight each PR size's result by the same "
+              "mix: {mieszanka} (all PRs of this table's windows), so a change in the share of large PRs does not move "
+              "the direction; \"—\" when the window has no PR of a size in the mix. Read the direction from the "
+              "normalised rows; the window totals (cost, tokens, merged PRs) are context only."},
     "ef_zdarzenia_ok": {"pl": "Zdarzenia agentów `{nazwa}`: {opis}, {n} zdarzeń.",
                         "en": "Agent events `{nazwa}`: {opis}, {n} events."},
     "ef_konf_tytul": {"pl": "### Koszt i jakość na PR wg konfiguracji implementatora (model · poziom rozumowania)",

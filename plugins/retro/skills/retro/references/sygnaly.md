@@ -148,6 +148,13 @@ section 2a of the retro document.
   per merged PR = the window's whole cost / merged PRs, unlike `koszt_na_pr_usd` (agent cost of PRs with attributed
   agents). A window older than the start of the tables (`efektywnosc_tygodnie`) has "—" for PR rows. `*` = fewer than 5
   PRs; such samples have no direction and do not enter the median.
+- **Normalised rows (since 0.8.3):** windows differ in length and in intensity, so the table adds rows that compare
+  across them. "Per working day": cost and merged PRs divided by the window's working days (calendar from the
+  configuration, at least 1, so an evening or weekend window counts as one day). "At a fixed size mix": % of PRs with a
+  fix and rounds per PR with each size's (S/M/L) result weighted by one mix, the sum of all PRs of the table's windows
+  (stated under the table); "—" when a window has no PR of a size in the mix. A shift towards large PRs raises the raw
+  % with a fix without any change in quality (R08: raw 42.2% "worse", 41.7% at R07's mix against R07's 50%); the
+  direction of the fixed-mix rows is the one to report. Totals (cost, tokens, merged PRs) stay as context.
 - **The retro window (since 0.7.0):** the window row of fix rounds, the window column of the cost table, the window table
   of cost and quality per PR, and `metryki.csv` use one filter (`w_oknie`: merged in `[start, end)`) over the same
   records as the weeks. The window and the weeks are different cuts of the same PRs: a week starts on Monday, so a

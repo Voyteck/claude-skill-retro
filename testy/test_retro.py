@@ -1734,6 +1734,30 @@ class Test070(Srodowisko):
         self.assertIn("· `sandbox`", l)
         self.assertIn("| chmura, osobno (USD) | — | $12 |", l)
 
+    def test_tabela_wynikow_znormalizowana_dniem_i_mieszanka(self):
+        import efektywnosc as ef
+        t0 = dt.datetime(2026, 10, 5, 12, 0, tzinfo=self.STREFA)      # poniedziałek, okno pon.–wt.: 2 dni robocze
+        t1 = dt.datetime(2026, 10, 12, 12, 0, tzinfo=self.STREFA)     # poniedziałek, okno pon.–czw.: 4 dni robocze
+        # te same wyniki w każdym rozmiarze (S bez poprawek, L zawsze z poprawką), inna mieszanka: 50% → 90% surowo
+        rundy = [self.pr(i, t0, linie=20) for i in range(5)] + [self.pr(i, t0, rundy=1, linie=500) for i in range(5, 10)]
+        rundy += [self.pr(20, t1, linie=20)] + [self.pr(i, t1, rundy=1, linie=500) for i in range(21, 30)]
+        okna = [("R07", t0 - dt.timedelta(hours=1), t0 + dt.timedelta(days=1), None),
+                ("teraz", t1 - dt.timedelta(hours=1), t1 + dt.timedelta(days=3), None)]
+        l = "\n".join(ef.raport_wynikow(okna, [], rundy, None, dt.date(2026, 9, 1)))
+        self.assertRegex(l, r"\| % PR z poprawką \| 50% \| 90% \| \*\*↑ pogorszenie\*\* \|")
+        self.assertRegex(l, r"\| % PR z poprawką przy stałej mieszance rozmiarów \| 70% \| 70% \| ≈ \|")
+        self.assertRegex(l, r"\| rundy na PR przy stałej mieszance rozmiarów \| 0.7 \| 0.7 \| ≈ \|")
+        self.assertIn("| dni robocze okna | 2 | 4 | — |", l)
+        self.assertIn("| scalone PR na dzień roboczy | 5.0 | 2.5 | — |", l)
+        self.assertIn("S 30%, L 70%", l)
+        # okno bez PR któregoś rozmiaru z mieszanki: bez wartości znormalizowanej
+        bez_s = [r for r in rundy if not (r["scalony"] > t1 - dt.timedelta(days=1) and r["linie"] == 20)]
+        l = "\n".join(ef.raport_wynikow(okna, [], bez_s, None, dt.date(2026, 9, 1)))
+        self.assertRegex(l, r"\| % PR z poprawką przy stałej mieszance rozmiarów \| \d+(\.\d)?% \| — \| — \|")
+        # weekendowe okno liczy się jako 1 dzień roboczy, nie 0
+        sobota = dt.datetime(2026, 10, 10, 20, 0, tzinfo=self.STREFA)
+        self.assertEqual(ef.dni_robocze_okna(sobota, sobota + dt.timedelta(hours=3)), 1)
+
     def test_tabela_wynikow_okno_starsze_niz_tabele_i_kierunek(self):
         import efektywnosc as ef
         t0 = dt.datetime(2026, 10, 5, 12, 0, tzinfo=self.STREFA)

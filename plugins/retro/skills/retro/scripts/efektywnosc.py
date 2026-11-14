@@ -590,10 +590,42 @@ def komorka_pr(lista: list, z_kosztem: bool = False) -> str:
     return s
 
 
-def raport_wynikow(okna: list, rekordy: list, rundy, polaczone, od_tygodnia: dt.date, progi=None) -> list:
+def dni_robocze_okna(od, do, konf: dict = None) -> int:
+    """Dni robocze okna [od, do) wg kalendarza konfiguracji, najmniej 1 (okno z jednego wieczoru albo weekendu)."""
+    import wspolne  # noqa: E402  (leniwie: wspolne nie jest potrzebne reszcie modułu)
+    ostatni = (do - dt.timedelta(minutes=1)).date()
+    return max(1, wspolne.dni_robocze_po(od.date() - dt.timedelta(days=1), ostatni, konf))
+
+
+def mieszanka_rozmiarow(listy: list, progi=None) -> dict:
+    """Wspólna mieszanka rozmiarów {S/M/L: udział} ze wszystkich PR okien tabeli (bez rozmiaru nieznanego)."""
+    licznik = collections.Counter(rozmiar(r["linie"], progi) for lista in listy for r in lista or [])
+    licznik.pop("?", None)
+    razem = sum(licznik.values())
+    return {k: licznik[k] / razem for k in ("S", "M", "L") if licznik[k]} if razem else {}
+
+
+def wskaznik_std(lista: list, mieszanka: dict, progi=None):
+    """(% z poprawką, rund na PR) okna ważone wspólną mieszanką rozmiarów; (None, None), gdy okno nie ma PR
+    któregoś rozmiaru z mieszanki albo mieszanka jest pusta."""
+    if not lista or not mieszanka:
+        return None, None
+    wg = collections.defaultdict(list)
+    for r in lista:
+        wg[rozmiar(r["linie"], progi)].append(r)
+    if any(not wg[k] for k in mieszanka):
+        return None, None
+    z_poprawka = sum(w * 100 * sum(r["rundy"] > 0 for r in wg[k]) / len(wg[k]) for k, w in mieszanka.items())
+    rundy = sum(w * statistics.mean(r["rundy"] for r in wg[k]) for k, w in mieszanka.items())
+    return round(z_poprawka, 1), round(rundy, 2)
+
+
+def raport_wynikow(okna: list, rekordy: list, rundy, polaczone, od_tygodnia: dt.date, progi=None,
+                   konf: dict = None) -> list:
     """Tabela wyników do zamknięcia retro (krok 6): każde okno z `okna_retro` policzone dziś tą samą definicją, z
     archiwów kosztu (`rekordy`: [(źródło, `rekordy_kosztu`)]) i scalonych PR. Okno starsze niż początek tabel
-    (`od_tygodnia`) nie ma danych PR („—”). Wartość z mniej niż MIN_PR PR ma gwiazdkę."""
+    (`od_tygodnia`) nie ma danych PR („—”). Wartość z mniej niż MIN_PR PR ma gwiazdkę. Od 0.8.3 także wiersze
+    znormalizowane: na dzień roboczy (`konf`: kalendarz) i przy stałej mieszance rozmiarów PR."""
     progi = progi or PROGI_ROZMIARU
     dane = []
     for _, od, do, _ in okna:
@@ -607,20 +639,23 @@ def raport_wynikow(okna: list, rekordy: list, rundy, polaczone, od_tygodnia: dt.
                      "wg_zrodla": {nazwa: sum(x["koszt"] for x in lista) for nazwa, lista in wg_zrodla.items()},
                      "tokeny": sum(x["tokeny"] for x in wszystkie), "bez_odczytu": sum(x["bez_odczytu"] for x in wszystkie),
                      "poziomy": poziomy, "pr": w_oknie(rundy, od, do) if pokryte else None,
-                     "polaczone": w_oknie(polaczone, od, do) if pokryte and polaczone is not None else None})
+                     "polaczone": w_oknie(polaczone, od, do) if pokryte and polaczone is not None else None,
+                     "dni": dni_robocze_okna(od, do, konf)})
     gw = lambda d: "" if d["pr"] is not None and len(d["pr"]) >= MIN_PR else "*"  # noqa: E731
+    mieszanka = mieszanka_rozmiarow([d["pr"] for d in dane], progi)
 
     def wskaznik(d):
-        """(koszt na scalony PR, % z poprawką, rund na PR) albo Nones, gdy okno nie ma PR."""
+        """(koszt na scalony PR, % z poprawką, rund na PR, % z poprawką std, rund std) albo Nones, gdy okno nie ma PR."""
         if not d["pr"]:
-            return None, None, None
+            return None, None, None, None, None
         o = opis_pr(d["pr"])
-        return d["koszt"] / o["pr"] if rekordy else None, o["z_poprawka"], o["rundy"]
+        return (d["koszt"] / o["pr"] if rekordy else None, o["z_poprawka"], o["rundy"],
+                *wskaznik_std(d["pr"], mieszanka, progi))
 
     def kierunek(i):
         teraz = dane[-1]
         wartosc = wskaznik(teraz)[i]
-        wczesniej = [wskaznik(d)[i] for d in dane[:-1] if d["pr"] and not gw(d)]
+        wczesniej = [wskaznik(d)[i] for d in dane[:-1] if d["pr"] and not gw(d) and wskaznik(d)[i] is not None]
         if gw(teraz) or wartosc is None or not wczesniej:
             return "—"
         strz = tokeny.strzalka(statistics.median(wczesniej), wartosc)
@@ -650,6 +685,14 @@ def raport_wynikow(okna: list, rekordy: list, rundy, polaczone, od_tygodnia: dt.
            kierunek(1))
     wiersz(t("ef_wyn_rundy"), ["—" if wskaznik(d)[2] is None else f"{fmt(wskaznik(d)[2])}{gw(d)}" for d in dane],
            kierunek(2))
+    if mieszanka:
+        wiersz(t("ef_wyn_z_poprawka_std"),
+               ["—" if wskaznik(d)[3] is None else f"{wskaznik(d)[3]:g}%{gw(d)}" for d in dane], kierunek(3))
+        wiersz(t("ef_wyn_rundy_std"),
+               ["—" if wskaznik(d)[4] is None else f"{fmt(wskaznik(d)[4])}{gw(d)}" for d in dane], kierunek(4))
+    wiersz(t("ef_wyn_dni"), [str(d["dni"]) for d in dane])
+    wiersz(t("ef_wyn_koszt_dzien"), [f"${d['koszt'] / d['dni']:.0f}" if rekordy else "—" for d in dane])
+    wiersz(t("ef_wyn_pr_dzien"), ["—" if d["pr"] is None else f"{len(d['pr']) / d['dni']:.1f}{gw(d)}" for d in dane])
 
     def grupy(klucz, zrodlo, etykieta, kolejnosc=None, z_kosztem=False):
         """Wiersze podziału: PR okien pogrupowane wg `klucz`, od największej grupy w całej tabeli."""
@@ -674,6 +717,8 @@ def raport_wynikow(okna: list, rekordy: list, rundy, polaczone, od_tygodnia: dt.
         wiersz(t("ef_wyn_poziom", p=poziom or t("ef_wyn_poziom_brak")),
                [f"${d['poziomy'][poziom]:.0f} ({100 * d['poziomy'][poziom] / r:.0f}%)" if r and d["poziomy"][poziom] >= 0.5
                 else "—" for d, r in zip(dane, razem)])
+    if mieszanka:
+        l += ["", t("ef_wyn_mieszanka", mieszanka=", ".join(f"{k} {100 * w:.0f}%" for k, w in mieszanka.items()))]
     return l
 
 
